@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Tuple, Dict, Any
 
 LatLng = Tuple[float, float]
+from Entities.ev import EV, EvState
+from Incident import IncidentStatus
 
 
 @dataclass
@@ -82,9 +84,9 @@ class Grid:
         ids = []
         for ev_id in self.evs:
             ev = ev_dict[ev_id]
-            if (ev.state.name == "IDLE" and 
+            if (ev.state == EvState.IDLE and 
                 ev.status == "available" and 
-                ev.nextGrid == ev.gridIndex):
+                ev.gridIndex == ev.srns["action"]):
                 ids.append(ev_id)
         return ids
     

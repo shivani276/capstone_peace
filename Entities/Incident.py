@@ -10,7 +10,7 @@ class IncidentStatus(Enum):
     NEW = auto()
     ASSIGNED = auto()
     SERVICING = auto()
-    DROPPING = auto()
+
     RESOLVED = auto()
     CANCELLED = auto()
 
@@ -48,7 +48,7 @@ class Incident:
         self.status = IncidentStatus.SERVICING
 
     def start_drop(self) -> None:
-        self.status = IncidentStatus.DROPPING
+        self.status = IncidentStatus.SERVICING
 
     def mark_resolved(self) -> None:
         self.status = IncidentStatus.RESOLVED

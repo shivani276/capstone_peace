@@ -56,8 +56,9 @@ class RepositioningService:
                 # and record the reposition utility as reward
                 v_obj.execute_reposition()
                 v_obj.sarns["reward"] = u_val
-                v_obj.nextGrid = g_idx
+                v_obj.gridIndex = g_idx
                 accepted += 1
+                g.add_ev(ev_id)
 
     def execute_repositions(
         self,
