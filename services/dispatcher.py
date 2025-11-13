@@ -92,8 +92,7 @@ class DispatcherService:
                 # Assign incident to best EV
                 if best_eid is not None:
                     best_ev = evs[best_eid]
-                    inc.assignedEvId = best_eid
-                    inc.status = IncidentStatus.ASSIGNED
+                    inc.assign_ev(best_eid)
 
                     # Record dispatch reward (utility)
                     best_ev.assign_incident(inc_id)
@@ -101,6 +100,7 @@ class DispatcherService:
                     # Remove from available lists per Algorithm 2
                     I.remove(best_eid)
                     K.remove(inc_id)
+                    g.remove_incident(inc_id)
                     assignments.append((best_eid, inc_id, float(best_Ud)))
         
         return assignments
