@@ -2,7 +2,7 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, List, Tuple, Dict, Any
 
 LatLng = Tuple[float, float]
 
@@ -78,14 +78,15 @@ class EV:
         Execute the reposition decision made in this tick.
         This should be called after move_to() has been invoked by MAP.
         """
+        self.status = "repositioning"
         self.aggIdleEnergy += 0.12  # Fixed energy cost for repositioning from one grid to another
         self.aggIdleTime += 8.0       # Fixed time cost for repositioning from one grid to another
     
-    def is_eligible_for_dispatch(self) -> bool:
+    def is_eligible_for_dispatch(self) -> (bool): #List[Tuple[int, int, float]]:
         """
         Check if this EV is eligible for dispatch assignment.
-        Only idle EVs that are staying in their current grid are eligible.
-        """
+        Only idle EVs that are staying in their current grid are eligible."""
+
         return (self.state == EvState.IDLE and 
                 self.status == "available" and 
                 self.nextGrid == self.gridIndex)

@@ -200,20 +200,25 @@ class Controller:
         # 1) spawn incidents for this tick
         self._spawn_incidents_for_tick(t)
 
-        # 2) build offers for idle EVs (state, action, utility) — “stay” is not an offer
+        # 2) build states and actions for IDLE EVs only
         for ev in self.env.evs.values():
             if ev.state == EvState.IDLE and ev.status == "available":
                 state_vec = self._build_state(ev)
                 ev.sarns["state"] = state_vec
                 a_gi = self._select_action(state_vec, ev.gridIndex)
                 ev.sarns["action"] = a_gi
+
+
         n_offers = self._build_offers_for_idle_evs()
-        
+
         # 3) Algorithm 1: accept offers (sets nextGrid and reward; no movement yet)
         self.env.accept_reposition_offers()
 
         #update state, action, reward and next_state in replay buffer
-
+        for ev in self.env.evs.values():
+            if ev.state == EvState.IDLE and ev.status == "repositioning":
+                self._push_reposition_transition(ev)
+                
         # 4) Gridwise dispatch (Algorithm 2) using EVs that stayed/rejected
         dispatches = self.env.dispatch_gridwise(beta=0.5)
 
@@ -489,18 +494,19 @@ class Controller:
         ] + pairs
         return [float(x) for x in s]
 
-    def _push_reposition_transition(self, ev, accepted: bool) -> None:
+    def _push_reposition_transition(self, ev) -> None:
         """
         Take what we stored in ev.sarns, build s', and push (s,a,r,s').
         """
         s  = ev.sarns.get("state")
         a  = ev.sarns.get("action")
-        r  = ev.sarns.get("reward", 0.0) or 0.0
+        r  = ev.sarns.get("reward")
         if s is None or a is None:
             return
         # next-state is built wrt the EV's chosen nextGrid if accepted,
         # otherwise its current grid (stay)
-        next_g = ev.nextGrid if accepted else ev.gridIndex
+        if ev.state == EvState.IDLE and ev.status == "repositioning":
+            next_g = ev.gridIndex
         s2 = self._build_state_for_grid(ev, next_g)
         done = 0.0  # not terminal at this stage
 

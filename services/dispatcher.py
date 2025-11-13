@@ -28,26 +28,7 @@ class DispatcherService:
         incidents: Dict[int, Incident],
         beta: float = 0.5,
     ) -> List[Tuple[int, int, float]]:
-        """
-        Algorithm 2: Gridwise dispatch.
-        
-        For each grid:
-        1. Get idle, available EVs that stayed in this grid
-        2. For each unassigned incident in grid:
-           - If no local EVs, borrow from neighbouring grids
-           - Compute utility for each candidate EV
-           - Assign to EV with maximum utility
-        3. Remove assigned EV/incident from available lists
-        
-        Args:
-            grids: Dict mapping grid indices to Grid objects
-            evs: Dict mapping EV IDs to EV objects
-            incidents: Dict mapping incident IDs to Incident objects
-            beta: Weight for vehicle utility (vs patient urgency)
-            
-        Returns:
-            List of (ev_id, incident_id, utility) tuples for completed assignments
-        """
+
         assignments: List[Tuple[int, int, float]] = []
         
         for g_idx, g in grids.items():
