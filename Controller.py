@@ -83,21 +83,21 @@ class Controller:
         self.max_idle_energy = E_MAX
 
     # ---------- state/action helpers ----------
-    def _pad_neighbors(self, nbs: List[int]) -> tuple[list[int], list[int]]:
+    def _pad_neighbors(self, nbs: List[int]):
         N = 8
         n = (nbs[:N] if len(nbs) >= N else nbs + [-1] * (N - len(nbs)))
-        mask = [1 if x != -1 else 0 for x in n]
-        n_feat = [0 if x == -1 else x for x in n]
-        return n_feat, mask
+        #mask = [1 if x != -1 else 0 for x in n]
+        #n_feat = [0 if x == -1 else x for x in n]
+        return n #n_feat, mask
 
     def _build_state(self, ev) -> list[float]:
         gi = ev.gridIndex
         nbs = self.env.grids[gi].neighbours
-        n8, _ = self._pad_neighbors(nbs)
+        n8 = self._pad_neighbors(nbs)
 
         vec = [gi]
         for nb in n8:
-            if nb == 0:
+            if nb == -1:
                 imb = 0.0
             else:
                 # Use new Grid method to calculate imbalance (OOP refactor)
@@ -110,19 +110,19 @@ class Controller:
     def _select_action(self, state_vec: list[float], gi: int) -> int:
         # 9 slots: [stay] + 8 neighbours (padded)
         nbs = self.env.grids[gi].neighbours
-        n8, mask8 = self._pad_neighbors(nbs)
+        n8= self._pad_neighbors(nbs)
         actions = [gi] + n8
-        mask = [1] + mask8
+        #mask = [1] + mask8
 
         if self.rng.random() < self.epsilon:
-            valid = [i for i, m in enumerate(mask) if m == 1]
+            valid = [i for i, a in enumerate(actions) if a != -1]
             slot = self.rng.choice(valid) if valid else 0
             return actions[slot]
 
         s = torch.tensor(state_vec, dtype=torch.float32, device=self.device).unsqueeze(0)
         q = self.dqn_reposition_main(s).detach().cpu().numpy().ravel()
-        for i, m in enumerate(mask):
-            if m == 0:
+        for i, a in enumerate(actions):
+            if a == -1:
                 q[i] = -1e9
         slot = int(np.argmax(q))
         return actions[slot]
