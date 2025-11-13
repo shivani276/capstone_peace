@@ -36,12 +36,12 @@ class EV:
 
     def assign_incident(self, patient_id: int) -> None:
         self.assignedPatientId = patient_id
-        self.status = "assigned"
+        self.status = "dispatched"
         self.state = EvState.DISPATCH
 
     def release_incident(self) -> None:
         self.assignedPatientId = None
-        self.status = "available"
+        self.status = "idle"
         self.state = EvState.IDLE
         self.nextGrid = None
 
@@ -72,21 +72,14 @@ class EV:
         prev_reward = self.sarns.get("reward")
         prev_reward = 0.0 if prev_reward is None else float(prev_reward)
         self.sarns["reward"] = prev_reward + utility
-    
-    def reject_reposition_offer(self) -> None:
-        """
-        Reject a reposition offer: stay in current grid.
-        No reward added.
-        """
-        self.nextGrid = self.gridIndex
-        # No reward change on rejection
-    
+        
     def execute_reposition(self) -> None:
         """
         Execute the reposition decision made in this tick.
         This should be called after move_to() has been invoked by MAP.
         """
-        self.nextGrid = None  # Clear the pending reposition
+        self.aggIdleEnergy += 0.12  # Fixed energy cost for repositioning from one grid to another
+        self.aggIdleTime += 8.0       # Fixed time cost for repositioning from one grid to another
     
     def is_eligible_for_dispatch(self) -> bool:
         """
