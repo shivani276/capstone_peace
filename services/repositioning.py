@@ -5,66 +5,58 @@ Manages Algorithm 1: accept reposition offers.
 """
 from typing import Dict, List, Tuple
 from collections import defaultdict
-from Entities.ev import EV
+
 from Entities.GRID import Grid
+
+from Entities.ev import EV, EvState
+from Entities.GRID import Grid
+from Entities.Incident import Incident
 
 
 class RepositioningService:
-    """Service for managing EV repositioning decisions."""
+   
     
     def accept_reposition_offers(
         self,
         evs: Dict[int, EV],
         grids: Dict[int, Grid],
-        incidents: Dict,
-    ) -> None:
-        """
-        Algorithm 1: Accept reposition offers from idle EVs.
-        
-        Each idle EV provides an offer (destination grid, utility).
-        For each grid, accept offers with highest utility up to grid imbalance capacity.
-        
-        Args:
-            evs: Dict mapping EV IDs to EV objects
-            grids: Dict mapping grid indices to Grid objects
-            incidents: Dict mapping incident IDs to Incident objects
-        """
+        incidents: Dict) -> None:
         # Group offers by destination grid
         offers_by_g = defaultdict(list)  # g_idx -> list[(utility, ev_id)]
-        
-        for ev in evs.values():
-            from Entities.ev import EvState
-            if ev.state != EvState.IDLE:
-                continue
+        for g_idx, g in grids.items():
+            neighbour_evs = []
             
-            dst = ev.sarns.get("action")
-            u = ev.sarns.get("utility")
-            if dst is None or u is None:
-                continue
-            
-            offers_by_g[dst].append((float(u), ev.id))
-        
-        # Process each destination grid
-        for g_idx, offers in offers_by_g.items():
-            # Sort by utility (highest first)
-            offers.sort(key=lambda x: x[0], reverse=True)
-            
-            # Capacity = how many EVs needed to balance this grid
-            grid = grids[g_idx]
-            cap = grid.calculate_imbalance(evs, incidents)
-            
-            # Accept top offers up to capacity
+            for nb in g.neighbours:
+                if nb not in grids:
+                    continue
+                neigh_grid = grids[nb]
+                for ev_id in neigh_grid.evs:
+                    neighbour_evs.append(evs[ev_id])
+            # 2) Build offers_g: offers from neighbour EVs that want THIS grid
+            offers_g = []   # list of tuples (utility, ev_id, ev_obj)
+            for v in neighbour_evs:
+                if v.state != EvState.IDLE:
+                    continue
+                dst = v.sarns.get("action")
+                u = v.sarns.get("utility")
+                if dst is None or u is None:
+                        continue
+                if dst == g_idx:
+                    offers_g.append((float(u), v.id, v))
+
+            #if not offers_g:
+                #continue
+            offers_g.sort(key=lambda x: x[0], reverse=True)
+            # 4) Capacity: how many EVs this grid "needs"
+            imbalance = g.calculate_imbalance(evs, incidents)
+            cap = max(0, imbalance)
             accepted = 0
-            for u, ev_id in offers:
-                ev = evs[ev_id]
-                if accepted < cap:
-                    # Accept the offer
-                    ev.accept_reposition_offer(g_idx, float(u))
-                    accepted += 1
-                else:
-                    # Reject the offer (stay in current grid)
-                    ev.reject_reposition_offer()
-    
+            while accepted < cap and offers_g:
+                u_val, ev_id, v_obj = offers_g.pop(0)
+                # and record the reposition utility as reward
+                v_obj.accept_reposition_offer(g_idx, float(u_val))
+                accepted += 1
+
     def execute_repositions(
         self,
         evs: Dict[int, EV],
