@@ -5,7 +5,7 @@ from typing import List, Optional, Tuple, Dict, Any
 
 LatLng = Tuple[float, float]
 from Entities.ev import EV, EvState
-from Incident import IncidentStatus
+
 
 
 @dataclass

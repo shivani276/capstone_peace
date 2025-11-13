@@ -15,19 +15,7 @@ class NavigationService:
         incident: Incident,
         hospitals: Dict[int, Hospital],
     ) -> Tuple[int, float]:
-        """
-        Select the best (nearest) hospital for a patient incident.
-        
-        Finds the hospital with the shortest ETA from the incident location.
-        
-        Args:
-            incident: The incident/patient to route
-            hospitals: Dict mapping hospital IDs to Hospital objects
-            
-        Returns:
-            Tuple of (hospital_id, eta_minutes) for the best hospital.
-                Returns (-1, inf) if no hospitals available.
-        """
+
         best_hid, best_eta = -1, float("inf")
         patient_lat, patient_lng = incident.location
         

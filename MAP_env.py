@@ -227,14 +227,6 @@ class MAP:
             hc.waitTime = max(wmin, min(wmax, hc.waitTime * math.exp(eps)))
 
     # ========== ALGORITHMS (delegated to services) ==========
-
-    def elligible_evs_for_dispatch(self) -> List[Tuple[int, int, float]]:
-        """Get list of EVs eligible for dispatch assignment."""
-        elligible_evs: List[Tuple[int, int, float]] = []
-        for ev in self.evs.values():
-            if ev.status == "available" and ev.state == EvState.IDLE and ev.nextGrid == ev.gridIndex:
-                elligible_evs.append((ev.id, ev.gridIndex, ev.aggIdleTime))
-        return elligible_evs
     
     def accept_reposition_offers(self) -> None:
         """
