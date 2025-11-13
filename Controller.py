@@ -141,18 +141,23 @@ class Controller:
         for ev in self.env.evs.values():
             gi = self.rng.choice(all_idx)
             self.env.move_ev_to_grid(ev.id, gi)
-
-            ev.aggIdleTime = self.rng.uniform(0.0, self.max_idle_minutes)
-            ev.aggIdleEnergy = self.rng.uniform(0.0, self.max_idle_energy)
-
-            # reset per-episode state
-            ev.set_state(EvState.IDLE)
-            ev.status = "available"
-            ev.nextGrid = ev.gridIndex  # default: stay unless accepted later
-            # clear NAV fields
-            ev.navTargetHospitalId = None
-            ev.navEtaMinutes = 0.0
-            ev.navUtility = 0.0
+            # 3) busy/idle split only (do NOT build offers here)
+            if self.rng.random() < self.busy_fraction:
+                ev.set_state(EvState.BUSY)
+                ev.status = "navigation"
+                ev.nextGrid = None
+                ev.aggIdleTime = 0.0
+                ev.aggIdleEnergy = 0.0
+            
+            else:
+                ev.set_state(EvState.IDLE)
+                ev.status = "available"
+                ev.nextGrid = None
+                ev.aggIdleTime = self.rng.uniform(0.0, self.max_idle_minutes)
+                ev.aggIdleEnergy = self.rng.uniform(0.0, self.max_idle_energy)
+                ev.navTargetHospitalId = None
+                ev.navEtaMinutes = 0.0
+                ev.navUtility = 0.0
             # clear SARNS
             ev.sarns.clear()
             ev.sarns["state"] = None
@@ -160,13 +165,6 @@ class Controller:
             ev.sarns["utility"] = None
             ev.sarns["reward"] = None
             ev.sarns["next_state"] = None
-
-        # 3) busy/idle split only (do NOT build offers here)
-        for ev in self.env.evs.values():
-            if self.rng.random() < self.busy_fraction:
-                ev.set_state(EvState.SERVICE)
-                ev.status = "busy"
-                ev.nextGrid = ev.gridIndex
 
         # 4) pick a random day and build schedule
         series = pd.to_datetime(self.df[self.time_col], errors="coerce").dt.normalize().dropna()

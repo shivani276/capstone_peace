@@ -13,6 +13,7 @@ class EvState(Enum):
     NAVIGATE = auto()
     SERVICE = auto()
     DROP = auto()
+    BUSY = auto()
 
 @dataclass
 class EV:
