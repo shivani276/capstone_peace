@@ -98,9 +98,9 @@ class MAP:
         """Convert 1D grid index to (row, col) coordinates."""
         return idx // self.nCols, idx % self.nCols
 
-    def rc_to_index(self, r: int, c: int) -> int:
-        """Convert (row, col) coordinates to 1D grid index."""
-        return r * self.nCols + c
+    #def rc_to_index(self, r: int, c: int) -> int:
+        #"""Convert (row, col) coordinates to 1D grid index."""
+        #return r * self.nCols + c
 
     def grid_center(self, idx: int) -> Tuple[float, float]:
         """Get the (lat, lng) center of a grid cell."""
@@ -227,6 +227,14 @@ class MAP:
             hc.waitTime = max(wmin, min(wmax, hc.waitTime * math.exp(eps)))
 
     # ========== ALGORITHMS (delegated to services) ==========
+
+    def elligible_evs_for_dispatch(self) -> List[Tuple[int, int, float]]:
+        """Get list of EVs eligible for dispatch assignment."""
+        elligible_evs: List[Tuple[int, int, float]] = []
+        for ev in self.evs.values():
+            if ev.status == "available" and ev.state == EvState.IDLE and ev.nextGrid == ev.gridIndex:
+                elligible_evs.append((ev.id, ev.gridIndex, ev.aggIdleTime))
+        return elligible_evs
     
     def accept_reposition_offers(self) -> None:
         """

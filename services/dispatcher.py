@@ -4,9 +4,10 @@ Dispatcher service: handles gridwise dispatch of EVs to incidents.
 Manages Algorithm 2: gridwise dispatch with multi-grid borrowing.
 """
 from typing import Dict, List, Tuple
-from Entities.ev import EV, EvState
+from MAP_env import MAP
+from Entities.ev import EV
 from Entities.GRID import Grid
-from Entities.Incident import Incident
+from Entities.Incident import Incident, IncidentStatus
 from utils.Helpers import (
     utility_dispatch_v,
     utility_dispatch_p,
@@ -39,6 +40,7 @@ class DispatcherService:
             
             # Get unassigned incidents in this grid
             K = g.get_pending_incidents(incidents)
+            K.sort(key=lambda iid: incidents[iid].waitTime, reverse=False)
             
             for inc_id in list(K):  # Copy to allow modification during iteration
                 # If no local EVs, borrow from neighbours
@@ -55,13 +57,13 @@ class DispatcherService:
                     # Sort by idle time
                     borrowed.sort(key=lambda eid: evs[eid].aggIdleTime, reverse=True)
                     I = borrowed
-                
+                inc = incidents[inc_id]
+
                 if not I:
                     # No EVs available in 8-neighbourhood; skip this incident
+                    inc.add_wait(8.0)
                     continue
-                
-                inc = incidents[inc_id]
-                
+                #---------- Compute utilities ----------
                 # Patient utility based on wait time
                 wait_minutes = inc.get_wait_minutes()
                 U_P = utility_dispatch_p(wait_minutes, P_min=P_MIN, P_max=P_MAX)
@@ -91,14 +93,11 @@ class DispatcherService:
                 if best_eid is not None:
                     best_ev = evs[best_eid]
                     inc.assignedEvId = best_eid
-                    
+                    inc.status = IncidentStatus.ASSIGNED
+
                     # Record dispatch reward (utility)
-                    prev_reward = best_ev.sarns.get("reward")
-                    prev_reward = 0.0 if prev_reward is None else float(prev_reward)
-                    best_ev.sarns["reward"] = prev_reward + float(best_Ud)
-                    best_ev.sarns["utility_dispatch"] = float(best_Ud)
-                    best_ev.sarns["assigned_incident"] = inc_id
-                    
+                    best_ev.assign_incident(inc_id)
+                
                     # Remove from available lists per Algorithm 2
                     I.remove(best_eid)
                     K.remove(inc_id)

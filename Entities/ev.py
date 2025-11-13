@@ -8,11 +8,7 @@ LatLng = Tuple[float, float]
 
 class EvState(Enum):
     IDLE = auto()
-    REPOSITION = auto()
-    DISPATCH = auto()
-    NAVIGATE = auto()
-    SERVICE = auto()
-    DROP = auto()
+    
     BUSY = auto()
 
 @dataclass
@@ -37,7 +33,7 @@ class EV:
     def assign_incident(self, patient_id: int) -> None:
         self.assignedPatientId = patient_id
         self.status = "dispatched"
-        self.state = EvState.DISPATCH
+        
 
     def release_incident(self) -> None:
         self.assignedPatientId = None
@@ -52,7 +48,7 @@ class EV:
     def set_next(self, grid_index: Optional[int]) -> None:
         self.nextGrid = grid_index
         if grid_index is not None and self.state == EvState.IDLE:
-            self.state = EvState.REPOSITION
+            self.state = EvState.IDLE
 
     def set_state(self, new_state: EvState) -> None:
         self.state = new_state
@@ -82,14 +78,14 @@ class EV:
         self.aggIdleEnergy += 0.12  # Fixed energy cost for repositioning from one grid to another
         self.aggIdleTime += 8.0       # Fixed time cost for repositioning from one grid to another
     
-    def is_eligible_for_dispatch(self) -> (bool): #List[Tuple[int, int, float]]:
+    '''def is_eligible_for_dispatch(self) -> (bool): #List[Tuple[int, int, float]]:
         """
         Check if this EV is eligible for dispatch assignment.
         Only idle EVs that are staying in their current grid are eligible."""
 
         return (self.state == EvState.IDLE and 
                 self.status == "available" and 
-                self.nextGrid == self.gridIndex)
+                self.nextGrid == self.gridIndex)'''
 
     def to_dict(self) -> Dict[str, Any]:
         return {
