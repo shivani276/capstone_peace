@@ -144,14 +144,14 @@ class Controller:
             # 3) busy/idle split only (do NOT build offers here)
             if self.rng.random() < self.busy_fraction:
                 ev.set_state(EvState.BUSY)
-                ev.status = "navigation"
+                ev.status = "Navigation"
                 ev.nextGrid = None
                 ev.aggIdleTime = 0.0
                 ev.aggIdleEnergy = 0.0
             
             else:
                 ev.set_state(EvState.IDLE)
-                ev.status = "available"
+                ev.status = "Idle"
                 ev.nextGrid = None
                 ev.aggIdleTime = self.rng.uniform(0.0, self.max_idle_minutes)
                 ev.aggIdleEnergy = self.rng.uniform(0.0, self.max_idle_energy)
@@ -201,10 +201,18 @@ class Controller:
         self._spawn_incidents_for_tick(t)
 
         # 2) build offers for idle EVs (state, action, utility) — “stay” is not an offer
+        for ev in self.env.evs.values():
+            if ev.state == EvState.IDLE and ev.status == "available":
+                state_vec = self._build_state(ev)
+                ev.sarns["state"] = state_vec
+                a_gi = self._select_action(state_vec, ev.gridIndex)
+                ev.sarns["action"] = a_gi
         n_offers = self._build_offers_for_idle_evs()
-
+        
         # 3) Algorithm 1: accept offers (sets nextGrid and reward; no movement yet)
         self.env.accept_reposition_offers()
+
+        #update state, action, reward and next_state in replay buffer
 
         # 4) Gridwise dispatch (Algorithm 2) using EVs that stayed/rejected
         dispatches = self.env.dispatch_gridwise(beta=0.5)
