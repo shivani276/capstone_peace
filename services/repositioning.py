@@ -54,7 +54,8 @@ class RepositioningService:
             while accepted < cap and offers_g:
                 u_val, ev_id, v_obj = offers_g.pop(0)
                 # and record the reposition utility as reward
-                v_obj.accept_reposition_offer(g_idx, float(u_val))
+                v_obj.execute_reposition()
+                v_obj.sarns["reward"] = u_val
                 accepted += 1
 
     def execute_repositions(
@@ -69,9 +70,7 @@ class RepositioningService:
             evs: Dict mapping EV IDs to EV objects
             grids: Dict mapping grid indices to Grid objects
         """
-        for ev in evs.values():
-            from Entities.ev import EvState
-            
+        for ev in evs.values():            
             if ev.state != EvState.IDLE:
                 ev.nextGrid = None
                 continue
