@@ -61,7 +61,6 @@ class DispatcherService:
 
                 if not I:
                     # No EVs available in 8-neighbourhood; skip this incident
-                    inc.add_wait(8.0)
                     continue
                 #---------- Compute utilities ----------
                 # Patient utility based on wait time
@@ -93,6 +92,7 @@ class DispatcherService:
                 if best_eid is not None:
                     best_ev = evs[best_eid]
                     inc.assign_ev(best_eid)
+                
 
                     # Record dispatch reward (utility)
                     best_ev.assign_incident(inc_id)

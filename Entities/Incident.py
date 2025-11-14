@@ -7,7 +7,7 @@ from datetime import datetime
 
 
 class IncidentStatus(Enum):
-    NEW = auto()
+    UNASSIGNED = auto()
     ASSIGNED = auto()
     SERVICING = auto()
 
@@ -33,7 +33,7 @@ class Incident:
     location: LatLng
     dropLocation: Optional[LatLng] = None
     priority: Priority = Priority.MED
-    status: IncidentStatus = IncidentStatus.NEW
+    status: IncidentStatus = IncidentStatus.UNASSIGNED
     waitTime: float = 0.0
     serviceTime: float = 0.0
     remainingWaitTime: Optional[float] = None
@@ -66,7 +66,7 @@ class Incident:
     
     def is_unassigned(self) -> bool:
         """Check if this incident is waiting for assignment."""
-        return self.assignedEvId is None or self.status == IncidentStatus.NEW
+        return self.assignedEvId is None or self.status == IncidentStatus.UNASSIGNED
     
     def get_wait_minutes(self) -> float:
         """Get accumulated wait time in minutes."""
