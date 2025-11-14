@@ -16,7 +16,7 @@ if __name__ == "__main__":
         lng_col="Longitude",
         name_col="Facility Name"
     )
-'''
+
     # 3) Create controller
     ctrl = Controller(
         env=env,
@@ -30,6 +30,6 @@ if __name__ == "__main__":
 
     # 4) Run one episode to verify flow
     ctrl.run_one_episode()
-'''
+
     # Example: Your CSV has columns named "lat", "lon", and "hospital_name"
     

@@ -44,11 +44,11 @@ class Incident:
         self.assignedEvId = ev_id
         self.status = IncidentStatus.ASSIGNED
 
-    def start_service(self) -> None:
+    '''def start_service(self) -> None:
         self.status = IncidentStatus.SERVICING
 
     def start_drop(self) -> None:
-        self.status = IncidentStatus.SERVICING
+        self.status = IncidentStatus.SERVICING'''
 
     def mark_resolved(self) -> None:
         self.status = IncidentStatus.RESOLVED

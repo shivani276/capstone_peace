@@ -4,7 +4,7 @@ Dispatcher service: handles gridwise dispatch of EVs to incidents.
 Manages Algorithm 2: gridwise dispatch with multi-grid borrowing.
 """
 from typing import Dict, List, Tuple
-from MAP_env import MAP
+#from MAP_env import MAP
 from Entities.ev import EV
 from Entities.GRID import Grid
 from Entities.Incident import Incident, IncidentStatus
@@ -100,7 +100,7 @@ class DispatcherService:
                     # Remove from available lists per Algorithm 2
                     I.remove(best_eid)
                     K.remove(inc_id)
-                    g.remove_incident(inc_id)
+                    #g.remove_incident(inc_id)
                     assignments.append((best_eid, inc_id, float(best_Ud)))
         
         return assignments

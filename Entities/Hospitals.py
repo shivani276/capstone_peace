@@ -97,7 +97,7 @@ class Hospital:
         
         return hids, etas, waits
     
-    def select_best_hospital(
+    def select_best_hospital(self,
         hospitals_dict: Dict[int, Hospital],
         patient_lat: float,
         patient_lng: float

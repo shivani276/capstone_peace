@@ -33,23 +33,23 @@ class EV:
     def assign_incident(self, patient_id: int) -> None:
         self.assignedPatientId = patient_id
         self.status = "dispatched"
+        self.aggIdleEnergy = 0.0
+        self.aggIdleTime = 0.0
         
 
     def release_incident(self) -> None:
         self.assignedPatientId = None
-        self.status = "idle"
+        self.status = "Idle"
         self.state = EvState.IDLE
         self.nextGrid = None
+        self.navTargetHospitalId = None
+        self.navEtaMinutes = 0.0
+        self.navUtility = 0.0
 
     def move_to(self, grid_index: int, new_loc: LatLng) -> None:
         self.gridIndex = grid_index
         self.location = new_loc
-
-    def set_next(self, grid_index: Optional[int]) -> None:
-        self.nextGrid = grid_index
-        if grid_index is not None and self.state == EvState.IDLE:
-            self.state = EvState.IDLE
-
+    
     def set_state(self, new_state: EvState) -> None:
         self.state = new_state
 
@@ -58,17 +58,7 @@ class EV:
         self.aggIdleEnergy += idle_energy
 
     # ========== Repositioning logic ==========
-    
-    def accept_reposition_offer(self, dest_grid: int, utility: float) -> None:
-        """
-        Accept a reposition offer to move to dest_grid.
-        Sets the next grid and records the utility as reward.
-        """
-        self.nextGrid = dest_grid
-        prev_reward = self.sarns.get("reward")
-        prev_reward = 0.0 if prev_reward is None else float(prev_reward)
-        self.sarns["reward"] = prev_reward + utility
-        
+   
     def execute_reposition(self) -> None:
         """
         Execute the reposition decision made in this tick.
@@ -78,15 +68,6 @@ class EV:
         self.aggIdleEnergy += 0.12  # Fixed energy cost for repositioning from one grid to another
         self.aggIdleTime += 8.0       # Fixed time cost for repositioning from one grid to another
     
-    '''def is_eligible_for_dispatch(self) -> (bool): #List[Tuple[int, int, float]]:
-        """
-        Check if this EV is eligible for dispatch assignment.
-        Only idle EVs that are staying in their current grid are eligible."""
-
-        return (self.state == EvState.IDLE and 
-                self.status == "available" and 
-                self.nextGrid == self.gridIndex)'''
-
     def to_dict(self) -> Dict[str, Any]:
         return {
             "id": self.id,

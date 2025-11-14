@@ -53,6 +53,7 @@ class MAP:
         self._incidentCounter = 0
         self._evCounter = 0
         self._hospitalCounter = 0
+        self.dispatcher: DispatcherService
 
         # Load grid configuration
         self.lat_edges, self.lng_edges, _ = load_grid_config_2d(grid_config_path)
@@ -237,13 +238,13 @@ class MAP:
         """
         self.repositioner.accept_reposition_offers(self.evs, self.grids, self.incidents)
 
-    def step_reposition(self) -> None:
+    '''def step_reposition(self) -> None:
         """
         Apply accepted reposition moves and clear pending decisions.
         
         Delegates to RepositioningService and handles physical grid moves.
         """
-        self.repositioner.execute_repositions(self.evs, self.grids)
+        #self.repositioner.execute_repositions(self.evs, self.grids)
         
         # Apply physical grid moves (MAP manages topology)
         for ev in self.evs.values():
@@ -254,7 +255,7 @@ class MAP:
                 continue
             if dst != ev.gridIndex:
                 self.move_ev_to_grid(ev.id, dst)
-            ev.nextGrid = None
+            ev.nextGrid = None'''
 
     def dispatch_gridwise(self, beta: float = 0.5) -> List[Tuple[int, int, float]]:
         """

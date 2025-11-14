@@ -43,7 +43,7 @@ class Controller:
 
         # DQNs (state=19, action=9 [stay + 8 neighbours])
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        state_dim = 19
+        state_dim = 20
         action_dim = 9
         self.dqn_reposition_main = DQNetwork(state_dim, action_dim).to(self.device)
         self.dqn_reposition_target = DQNetwork(state_dim, action_dim).to(self.device)
@@ -209,10 +209,12 @@ class Controller:
                 ev.sarns["action"] = a_gi
 
 
-        n_offers = self._build_offers_for_idle_evs()
+        
 
         # 3) Algorithm 1: accept offers (sets nextGrid and reward; no movement yet)
         self.env.accept_reposition_offers()
+
+        n_offers = self._build_offers_for_idle_evs()
 
         #update state, action, reward and next_state in replay buffer
         for ev in self.env.evs.values():
@@ -222,6 +224,8 @@ class Controller:
         # 4) Gridwise dispatch (Algorithm 2) using EVs that stayed/rejected
         dispatches = self.env.dispatch_gridwise(beta=0.5)
 
+        #-----------------------TICK RIGHT FOR HERE-------------------------#
+        
         # 5) Debug snapshot so you can see it running
         todays = self._schedule.get(t, []) if self._schedule else []
         accepted = sum(
@@ -233,7 +237,7 @@ class Controller:
             f"Tick {t:03d} | incidents+{len(todays):2d} | offers={n_offers:2d} | "
             f"accepted={accepted:2d} | dispatched={len(dispatches):2d}"
         )
-
+        '''
         # 6) NAV per tick (only for dispatched EVs)
         #    Update hospital waits, then choose hospital via DQN (action), reward = U^N, store transition.
         self.env.tick_hospital_waits(lam=0.04, wmin=5.0, wmax=90.0)
@@ -283,46 +287,34 @@ class Controller:
             self.buffer_navigation.push(s_t, a_t, r_t, s2_t, d_t)
 
         # Single nav training step per tick
-        self._train_navigation(batch_size=64, gamma=0.99)
+        self._train_navigation(batch_size=64, gamma=0.99)'''
 
 
 
-    def _debug_print_navigation_utility(self, dispatches, H_min: float, H_max: float):
-        from utils.Helpers import travel_minutes, utility_navigation_un
+    
 
-        if not getattr(self.env, "hospitals", None):
-            print("  NAV: no hospitals initialised; skip navigation utility check.")
-            return
+    def run_one_episode(self) -> None:
+        print("[Controller] Resetting episode...")
+        self._reset_episode()
 
-        shown = 0
-        for (eid, inc_id, _Ud) in dispatches:
-            inc = self.env.incidents[inc_id]
-            lat_p, lng_p = inc.location
+        if self._current_day is not None:
+            print(f"[Controller] Day selected: {self._current_day.date()}")
+        else:
+            print("[Controller] Warning: No day selected (dataset may be empty or invalid).")
 
-            best_hc, best_eta = None, float("inf")
-            for hc in self.env.hospitals.values():
-                eta = travel_minutes(lat_p, lng_p, hc.loc[0], hc.loc[1], kmph=40.0)
-                if eta < best_eta:
-                    best_eta, best_hc = eta, hc
+        if self._schedule:
+            total_incidents = sum(len(v) for v in self._schedule.values())
+            print(f"[Controller] Total incidents today: {total_incidents}")
+        else:
+            print("[Controller] Warning: Schedule not built — no incidents will spawn.")
 
-            if best_hc is None:
-                print("  NAV: no hospital found (unexpected).")
-                continue
+        # Only run 5 ticks for debugging
+        for t in range(5):
+            self._tick(t)
 
-            wait_at_hc = float(getattr(best_hc, "waitTime", 0.0))  # ← camelCase
-            W_busy = max(0.0, H_max - (best_eta + wait_at_hc))
-            U_N = utility_navigation_un(W_busy, H_min=H_min, H_max=H_max)
+        print(f"[Controller] Episode debug run complete. Total incidents created: {len(self.env.incidents)}")
 
-            print(
-                f"  NAV: EV{eid:02d} -> Inc {inc_id} via HC{best_hc.id:02d} | "
-                f"ETA_to_HC={best_eta:.1f}m wait@HC={wait_at_hc:.1f}m | "
-                f"W_busy={W_busy:.1f} -> U^N={U_N:.3f}"
-            )
-            shown += 1
-            if shown >= 3:
-                break
-
-
+    '''
     # ---------- run one episode ----------
     def run_one_episode(self) -> None:
         print("[Controller] Resetting episode...")
@@ -349,10 +341,12 @@ class Controller:
                 print(f"Tick {t:03d}: incidents so far = {len(self.env.incidents)}")
 
         print(f"[Controller] Episode complete. Total incidents created: {len(self.env.incidents)}")
-
+    '''
     def _build_offers_for_idle_evs(self) -> int:
         offers = 0
+        
         for ev in self.env.evs.values():
+            '''
             if ev.state != EvState.IDLE or ev.status != "available":
                 ev.nextGrid = ev.gridIndex
                 ev.sarns["state"] = None
@@ -367,27 +361,35 @@ class Controller:
 
             ev.sarns["state"] = s_vec
             ev.sarns["action"] = a_gi
+            '''
+            a_gi = ev.sarns["action"]
 
-            if a_gi == ev.gridIndex:
+            if a_gi == ev.nextGrid:
+                offers += 1
+                '''
                 # “Stay” is NOT a reposition offer
                 ev.nextGrid = ev.gridIndex
                 ev.sarns["utility"] = None
                 ev.sarns["reward"] = 0.0   # no reward from acceptance step
                 ev.sarns["next_state"] = None
                 continue  # do not count as an offer
-
+                '''
             # Only moving proposals get a utility and enter acceptance
             u = utility_repositioning(
                 W_idle=ev.aggIdleTime, E_idle=ev.aggIdleEnergy,
                 W_min=W_MIN, W_max=W_MAX, E_min=E_MIN, E_max=E_MAX
             )
             ev.sarns["utility"] = float(u)
-            ev.sarns["reward"] = None
-            ev.sarns["next_state"] = None
-            ev.nextGrid = ev.gridIndex  # pending; only changes if accepted
-            offers += 1
+            #ev.sarns["reward"] = None
+            #ev.sarns["next_state"] = None
+            #ev.nextGrid = ev.gridIndex  # pending; only changes if accepted
+            
 
         return offers
+    
+
+    #======================NAVIGATION============================#
+
     def _build_nav_state(self, inc_id: int) -> tuple[list[float], list[int], list[int]]:
         
         hids, etas, waits = self.env.get_nav_candidates(inc_id, max_k=NAV_K)
@@ -420,13 +422,17 @@ class Controller:
             if m == 0:
                 q[i] = -1e9
         return int(np.argmax(q))
+    
+    #========================NAV-STATE-ACTION=======================#
 
-    def _compute_un(self, eta_ph: float, wait_h: float) -> float:
+    '''def _compute_un(self, eta_ph: float, wait_h: float) -> float:
         # U^N per Eq. (14), using Helpers util you already added
         from utils.Helpers import utility_navigation_un
         # remaining slack style: larger slack ⇒ higher utility
         W_busy = max(0.0, H_MAX - (eta_ph + wait_h))
-        return utility_navigation_un(W_busy, H_MIN, H_MAX)
+        return utility_navigation_un(W_busy, H_MIN, H_MAX)'''
+    
+
     def _train_navigation(self, batch_size: int = 64, gamma: float = 0.99):
         # need enough samples
         if len(self.buffer_navigation) < batch_size:
@@ -468,7 +474,7 @@ class Controller:
         if self.nav_step % 500 == 0:
             print(f"[Controller] NAV train step={self.nav_step} loss={loss.item():.4f}")
 
-    def _build_state_for_grid(self, ev, grid_index: int) -> list[float]:
+    '''def _build_state_for_grid(self, ev, grid_index: int) -> list[float]:
 
         # neighbour list of target grid
         nbs = self.env.grids[grid_index].neighbours
@@ -492,7 +498,7 @@ class Controller:
             ev.aggIdleTime,
             ev.aggIdleEnergy,
         ] + pairs
-        return [float(x) for x in s]
+        return [float(x) for x in s]'''
 
     def _push_reposition_transition(self, ev) -> None:
         """
@@ -507,7 +513,7 @@ class Controller:
         # otherwise its current grid (stay)
         if ev.state == EvState.IDLE and ev.status == "repositioning":
             next_g = ev.gridIndex
-        s2 = self._build_state_for_grid(ev, next_g)
+        s2 = self._build_state(ev)
         done = 0.0  # not terminal at this stage
 
         # push to replay (tensorise once; buffer will normalise if needed)
