@@ -20,10 +20,7 @@ class Grid:
     neighbours: List[int] = field(default_factory=list)
 
     imbalance: float = 0.0
-
-    def set_loc(self, pos: LatLng) -> None:
-        self.loc = pos
-
+ 
     def add_neighbour(self, idx: int) -> None:
         if idx not in self.neighbours:
             self.neighbours.append(idx)
@@ -44,19 +41,18 @@ class Grid:
         if ev_id in self.evs:
             self.evs.remove(ev_id)
 
-    def add_hospital(self, hosp_id: int) -> None:
-        if hosp_id not in self.hospitals:
-            self.hospitals.append(hosp_id)
-
-    def set_imbalance(self, val: float) -> None:
-        self.imbalance = val
-
     # ========== Domain logic for querying grid state ==========
     
     def count_idle_available_evs(self, ev_dict: Dict[int, Any]) -> int:
         """Count idle and available EVs in this grid."""
-        return sum(1 for ev_id in self.evs 
-                  if ev_dict[ev_id].status == "available" and ev_dict[ev_id].state.name == "IDLE")
+        count = 0
+        for ev_id in self.evs:
+            ev = ev_dict[ev_id]
+            if (ev.state == EvState.IDLE and 
+                ev.status == "available" and 
+                ev.gridIndex == ev.srns["action"]):
+                count +=1
+        return count
     
     def count_unassigned_incidents(self, incident_dict: Dict[int, Any]) -> int:
         """Count incidents not yet assigned to any EV."""

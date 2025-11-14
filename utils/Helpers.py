@@ -160,7 +160,7 @@ def _safe_norm(x: float, xmin: float, xmax: float, invert: bool = False) -> floa
 
 
 # ---- Navigation utility (busyness) ----
-def utility_navigation(W_busy: float, H_min: float = 0.0, H_max: float = 1.0) -> float:
+def utility_navigation(W_busy: float, H_min: float = 0.0, H_max: float = H_MAX) -> float:
     """
     Higher W_busy → worse navigation utility (more congestion/wait to navigate).
     Map to [0,1], where 1 is best utility.
@@ -170,7 +170,7 @@ def utility_navigation(W_busy: float, H_min: float = 0.0, H_max: float = 1.0) ->
 
 
 # ---- Dispatch utilities (vehicle idle & patient wait) ----
-def utility_dispatch_v(W_idle: float, W_min: float = 0.0, W_max: float = 1.0) -> float:
+def utility_dispatch_v(W_idle: float, W_min: float = 0.0, W_max: float = W_MAX) -> float:
     """
     Vehicle-side utility: if EV has waited idly longer (W_idle high), reward dispatching it.
     Returns in [0,1], higher means better to dispatch this EV now.
@@ -179,7 +179,7 @@ def utility_dispatch_v(W_idle: float, W_min: float = 0.0, W_max: float = 1.0) ->
     return _safe_norm(W_idle, W_min, W_max, invert=False)
 
 
-def utility_dispatch_p(W_kt: float, P_min: float = 0.0, P_max: float = 1.0) -> float:
+def utility_dispatch_p(W_kt: float, P_min: float = 0.0, P_max: float = P_MAX) -> float:
     """
     Patient-side utility: if patient time (W_kt) is high, reward dispatch (urgent).
     Returns in [0,1], higher means more urgent to dispatch.
@@ -211,9 +211,9 @@ def utility_repositioning(
     E_idle: float,
     alpha: float = 0.2,
     W_min: float = 0.0,
-    W_max: float = 1.0,
+    W_max: float = W_MAX,
     E_min: float = 0.0,
-    E_max: float = 1.0,
+    E_max: float = E_MAX,
 ) -> float:
     """
     Repositioning utility combines:
@@ -233,7 +233,7 @@ def reward_dispatch(W_idle: float, W_kt: float) -> float:
     """Reward for dispatching based on combined vehicle + patient utility."""
     from utils.Helpers import W_MIN, W_MAX, P_MIN, P_MAX
     U_D = utility_dispatch_total(W_idle, W_kt, W_min=W_MIN, W_max=W_MAX, P_min=P_MIN, P_max=P_MAX)
-    return 2.0 * U_D - 1.0
+    return U_D 
 
 
 def reward_navigation(W_busy: float) -> float:
@@ -242,7 +242,7 @@ def reward_navigation(W_busy: float) -> float:
     Scale to [-1, +1]: R = 2*U_N - 1
     """
     U_N = utility_navigation(W_busy)
-    return 2.0 * U_N - 1.0
+    return U_N 
 
 
 def reward_reposition(

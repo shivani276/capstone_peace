@@ -11,6 +11,7 @@ from Entities.GRID import Grid
 from Entities.ev import EV, EvState
 from Entities.GRID import Grid
 from Entities.Incident import Incident
+from utils.Helpers import utility_repositioning
 
 
 class RepositioningService:
@@ -38,7 +39,8 @@ class RepositioningService:
                 if v.state != EvState.IDLE:
                     continue
                 dst = v.sarns.get("action")
-                u = v.sarns.get("utility")
+                #u = v.sarns.get("utility")
+                u = utility_repositioning(v.aggIdleTime,v.aggIdleEnergy)
                 if dst is None or u is None:
                         continue
                 if dst == g_idx:
@@ -56,7 +58,7 @@ class RepositioningService:
                 # and record the reposition utility as reward
                 v_obj.execute_reposition()
                 v_obj.sarns["reward"] = u_val
-                v_obj.gridIndex = g_idx
+                v_obj.nextGrid = g_idx
                 accepted += 1
                 g.add_ev(ev_id)
 
