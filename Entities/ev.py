@@ -32,7 +32,7 @@ class EV:
 
     def assign_incident(self, patient_id: int) -> None:
         self.assignedPatientId = patient_id
-        self.status = "dispatched"
+        self.status = "Dispatching"
         self.aggIdleEnergy = 0.0
         self.aggIdleTime = 0.0
         
@@ -53,9 +53,9 @@ class EV:
     def set_state(self, new_state: EvState) -> None:
         self.state = new_state
 
-    def add_idle(self, dt: float, idle_energy: float = 0.0) -> None:
+    def add_idle(self, dt: float) -> None:
         self.aggIdleTime += dt
-        self.aggIdleEnergy += idle_energy
+
 
     # ========== Repositioning logic ==========
    
@@ -64,7 +64,7 @@ class EV:
         Execute the reposition decision made in this tick.
         This should be called after move_to() has been invoked by MAP.
         """
-        self.status = "repositioning"
+        
         self.aggIdleEnergy += 0.12  # Fixed energy cost for repositioning from one grid to another
         self.aggIdleTime += 8.0       # Fixed time cost for repositioning from one grid to another
     

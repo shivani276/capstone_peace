@@ -56,13 +56,15 @@ class RepositioningService:
             while accepted < cap and offers_g:
                 u_val, ev_id, v_obj = offers_g.pop(0)
                 # and record the reposition utility as reward
-                v_obj.execute_reposition()
+                #v_obj.execute_reposition()
+                v_obj.status = "Repositioning"
                 v_obj.sarns["reward"] = u_val
                 v_obj.nextGrid = g_idx
                 accepted += 1
-                g.add_ev(ev_id)
+                #g.add_ev(ev_id)
+        
 
-    def execute_repositions(
+    '''def execute_repositions(
         self,
         evs: Dict[int, EV],
         grids: Dict[int, Grid],
@@ -91,4 +93,4 @@ class RepositioningService:
                 pass
             
             # Clear pending reposition
-            ev.execute_reposition()
+            ev.execute_reposition()'''
