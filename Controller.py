@@ -208,9 +208,6 @@ class Controller:
                 a_gi = self._select_action(state_vec, ev.gridIndex)
                 ev.sarns["action"] = a_gi
 
-
-        
-
         # 3) Algorithm 1: accept offers (sets nextGrid and reward; no movement yet)
         self.env.accept_reposition_offers()
 
@@ -224,7 +221,14 @@ class Controller:
         # 4) Gridwise dispatch (Algorithm 2) using EVs that stayed/rejected
         dispatches = self.env.dispatch_gridwise(beta=0.5)
 
-        #-----------------------TICK RIGHT FOR HERE-------------------------#
+        # 5) build states and actions for IDLE EVs only
+        for ev in self.env.evs.values():
+            if ev.state == EvState.BUSY and ev.status == "available":
+                state_vec = self._build_state(ev)
+                ev.sarns["state"] = state_vec
+                a_gi = self._select_action(state_vec, ev.gridIndex)
+                ev.sarns["action"] = a_gi
+
         
         # 5) Debug snapshot so you can see it running
         todays = self._schedule.get(t, []) if self._schedule else []

@@ -317,11 +317,12 @@ class MAP:
         inc = self.incidents[inc_id]
         return self.navigator.get_candidate_hospitals(inc, self.hospitals, max_k=max_k)
 
-    def update_after_timeslot(self, dt_minutes: float = 1.0) -> None:
+    def update_after_timeslot(self, dt_minutes: float = 8.0) -> None:
+        # EV updates
         for ev in self.evs.values():
-        # 1) EV staying idle in its chosen grid
+            # 1) EV staying idle in its chosen grid
             if ev.state == EvState.IDLE and ev.gridIndex == ev.sarns.get("action"):
-                ev.add_idle(8.0)
+                ev.add_idle(dt_minutes)
 
             # 2) EV has been dispatched but no reward yet: move it to patient's grid
             elif ev.status == "Dispatching" and ev.sarns.get("reward") is None:
@@ -330,45 +331,41 @@ class MAP:
                 if patient_id is not None:
                     inc = self.incidents.get(patient_id)
                     if inc is not None:
-                        grid = inc.gridIndex      
-                        # move EV to the grid of the incident
-                        self.move_ev_to_grid(ev.id, grid)
-            elif ev.status == "Repositioning" and ev.sarns.get("reward") is not None:
-                old_grid = self.grids.get(ev.gridIndex)
-                ev.execute_reposition() #ev times energy update
-                if ev.nextGrid:
-                    self.move_ev_to_grid(ev.id,ev.nextGrid) #list of evs in grids updated
-                '''if old_grid is not None:
-                    old_grid.remove_ev(ev.id)
-                if ev.nextGrid is not None:
-                    ev.gridIndex = ev.nextGrid
-                    grid=self.grids.get(ev.gridIndex)
-                    if grid is not None:
-                        grid.add_ev(ev.id)'''
-                                
-            #elif ev.state == "Navigation" and ev.state == EvState.BUSY:
+                        self.move_ev_to_grid(ev.id, inc.gridIndex)
 
-        for inc in self.incidents.values():
-            if inc.waitTime< P_MAX and inc.status == IncidentStatus.UNASSIGNED :
-            #inc.status == IncidentStatus.SERVICING and inc.assignedEvId != None
-                inc.add_wait(8)
+            # 3) Accepted reposition: execute energy/time cost + move
+            elif ev.status == "Repositioning" and ev.sarns.get("reward") is not None:
+                ev.execute_reposition()
+                if ev.nextGrid is not None:
+                    self.move_ev_to_grid(ev.id, ev.nextGrid)
+                # optional: reset status after move
+                # ev.status = "available"
+                # ev.nextGrid = None
+
+        # Incident updates
+        to_delete = []
+        for inc_id, inc in self.incidents.items():
+            if inc.status == IncidentStatus.UNASSIGNED and inc.waitTime < P_MAX:
+                inc.add_wait(dt_minutes)
             elif inc.waitTime > P_MAX:
                 inc.status = IncidentStatus.CANCELLED
 
                 grid_idx = inc.gridIndex
-
-                # --- A) Remove from grid's incident list ---
+    
                 if grid_idx in self.grids:
                     g = self.grids[grid_idx]
-                    inc_id = inc.id
+
                     if inc_id in g.incidents:
                         g.incidents.remove(inc_id)
+                to_delete.append(inc_id)
 
-                del self.incidents[inc_id]
+        for inc_id in to_delete:
+            del self.incidents[inc_id]
 
+        # Recompute grid imbalances
         for g in self.grids.values():
-            
-            g.calculate_imbalance(self.evs,self.incidents)
+            g.imbalance = g.calculate_imbalance(self.evs, self.incidents)
+
 
 
                     
