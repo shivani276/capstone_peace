@@ -1,35 +1,21 @@
 from MAP_env import MAP
 from Controller import Controller
 
-if __name__ == "__main__":
 
-    # 1) Load grid environment
-    env = MAP("Data/grid_config_2d.json")
 
-    # 2) Initialise EVs (27 default)
-    env.init_evs(seed=42)
-    print(f"[Main] EVs initialised: {len(env.evs)} total.")
+# 1) Load grid environment
+env = MAP("Data/grid_config_2d.json")
 
-    env.init_hospitals(
-        csv_path="Data/hospitals_latlong.csv",
-        lat_col="Latitude",
-        lng_col="Longitude",
-        name_col="Facility Name"
-    )
+# 2) Create EVs
+env.init_evs()
 
-    # 3) Create controller
-    ctrl = Controller(
-        env=env,
-        ticks_per_ep=180,  # 1 day of 8-min slots
-        seed=123,
-        csv_path="Data/5Years_SF_calls_latlong.csv",  # your dataset
-        time_col="Received DtTm",
-        lat_col="Latitude",
-        lng_col="Longitude",
-    )
+# 3) Create Controller (with your real CSV path)
+controller = Controller(
+    env,
+    ticks_per_ep=180,
+    csv_path="Data/5Years_SF_calls_latlong.csv",  # adjust to your actual path
+)
 
-    # 4) Run one episode to verify flow
-    ctrl.run_one_episode()
-
-    # Example: Your CSV has columns named "lat", "lon", and "hospital_name"
-    
+# 4) Run the short debug episode (5 ticks)
+controller.run_one_episode()
+print("Reposition buffer size:", len(controller.buffer_reposition))

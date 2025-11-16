@@ -18,7 +18,7 @@ class EV:
     location: LatLng
     state: EvState = EvState.IDLE
     nextGrid: Optional[int] = None
-    status: str = "available"
+    status: str = "Idle"
     assignedPatientId: Optional[int] = None
 
     aggIdleTime: float = 0.0
