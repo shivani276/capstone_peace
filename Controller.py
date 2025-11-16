@@ -81,6 +81,7 @@ class Controller:
         # EV randomisation bounds (already enforced in Helpers via constants)
         self.max_idle_minutes = W_MAX
         self.max_idle_energy = E_MAX
+        self.max_wait_time_HC = H_MAX
 
     # ---------- state/action helpers ----------
     def _pad_neighbors(self, nbs: List[int]):
@@ -92,20 +93,33 @@ class Controller:
 
     def _build_state(self, ev) -> list[float]:
         gi = ev.gridIndex
-        nbs = self.env.grids[gi].neighbours
+        g = self.env.grids[gi]
+        nbs = g.neighbours
         n8 = self._pad_neighbors(nbs)
 
-        vec = [gi]
+        vec: list[float] = []
+
+        # 1) Own grid index + own imbalance  (2 features)
+        own_imb = float(g.calculate_imbalance(self.env.evs, self.env.incidents))
+        vec.append(float(gi))
+        vec.append(own_imb)
+
+        # 2) For each of 8 neighbours: (neighbour_index, neighbour_imbalance) (16 features)
         for nb in n8:
             if nb == -1:
-                imb = 0.0
+                vec.extend([0.0, 0.0])
             else:
-                # Use new Grid method to calculate imbalance (OOP refactor)
+                
                 imb = float(self.env.grids[nb].calculate_imbalance(self.env.evs, self.env.incidents))
-            vec.extend([nb, imb])
+                vec.extend([float(nb), imb])
 
-        vec.extend([float(ev.aggIdleTime), float(ev.aggIdleEnergy)])
-        return vec  # length 19
+        # 3) EV idle time + idle energy (2 features)
+        vec.append(float(ev.aggIdleTime))
+        vec.append(float(ev.aggIdleEnergy))
+
+        # Total length: 2 (own) + 8*2 (neighbours) + 2 (idle) = 20
+        return vec
+
 
     def _select_action(self, state_vec: list[float], gi: int) -> int:
         # 9 slots: [stay] + 8 neighbours (padded)
@@ -146,6 +160,7 @@ class Controller:
                 ev.set_state(EvState.BUSY)
                 ev.status = "Navigation"
                 ev.nextGrid = None
+                ev.navEtaMinutes = self.rng.uniform(0.0, self.max_wait_time_HC)                
                 ev.aggIdleTime = 0.0
                 ev.aggIdleEnergy = 0.0
             
@@ -199,10 +214,13 @@ class Controller:
     def _tick(self, t: int) -> None:
         # 1) spawn incidents for this tick
         self._spawn_incidents_for_tick(t)
+        
+        for g in self.env.grids.values():
+            g.imbalance = g.calculate_imbalance(self.env.evs, self.env.incidents)
 
         # 2) build states and actions for IDLE EVs only
         for ev in self.env.evs.values():
-            if ev.state == EvState.IDLE and ev.status == "available":
+            if ev.state == EvState.IDLE and ev.status == "Idle":
                 state_vec = self._build_state(ev)
                 ev.sarns["state"] = state_vec
                 a_gi = self._select_action(state_vec, ev.gridIndex)
@@ -210,12 +228,12 @@ class Controller:
 
         # 3) Algorithm 1: accept offers (sets nextGrid and reward; no movement yet)
         self.env.accept_reposition_offers()
-
+        
         n_offers = self._build_offers_for_idle_evs()
 
         #update state, action, reward and next_state in replay buffer
         for ev in self.env.evs.values():
-            if ev.state == EvState.IDLE and ev.status == "repositioning":
+            if ev.state == EvState.IDLE and ev.status == "Repositioning":
                 self._push_reposition_transition(ev)
                 
         # 4) Gridwise dispatch (Algorithm 2) using EVs that stayed/rejected
@@ -223,7 +241,7 @@ class Controller:
 
         # 5) build states and actions for IDLE EVs only
         for ev in self.env.evs.values():
-            if ev.state == EvState.BUSY and ev.status == "available":
+            if ev.state == EvState.BUSY and ev.status == "Navigation":
                 state_vec = self._build_state(ev)
                 ev.sarns["state"] = state_vec
                 a_gi = self._select_action(state_vec, ev.gridIndex)
@@ -300,6 +318,8 @@ class Controller:
     def run_one_episode(self) -> None:
         print("[Controller] Resetting episode...")
         self._reset_episode()
+        
+
 
         if self._current_day is not None:
             print(f"[Controller] Day selected: {self._current_day.date()}")
@@ -368,7 +388,7 @@ class Controller:
             '''
             a_gi = ev.sarns["action"]
 
-            if a_gi == ev.nextGrid:
+            if a_gi == ev.nextGrid and ev.status == "Repositioning" :
                 offers += 1
                 '''
                 # “Stay” is NOT a reposition offer
@@ -379,11 +399,8 @@ class Controller:
                 continue  # do not count as an offer
                 '''
             # Only moving proposals get a utility and enter acceptance
-            u = utility_repositioning(
-                W_idle=ev.aggIdleTime, E_idle=ev.aggIdleEnergy,
-                W_min=W_MIN, W_max=W_MAX, E_min=E_MIN, E_max=E_MAX
-            )
-            ev.sarns["utility"] = float(u)
+
+            #ev.sarns["utility"] = float(u)
             #ev.sarns["reward"] = None
             #ev.sarns["next_state"] = None
             #ev.nextGrid = ev.gridIndex  # pending; only changes if accepted
@@ -515,8 +532,9 @@ class Controller:
             return
         # next-state is built wrt the EV's chosen nextGrid if accepted,
         # otherwise its current grid (stay)
-        if ev.state == EvState.IDLE and ev.status == "repositioning":
+        if ev.state == EvState.IDLE and ev.status == "Repositioning":
             next_g = ev.gridIndex
+
         s2 = self._build_state(ev)
         done = 0.0  # not terminal at this stage
 
@@ -527,4 +545,5 @@ class Controller:
         r_t  = torch.tensor(r,  dtype=torch.float32)
         s2_t = torch.tensor(s2, dtype=torch.float32)
         d_t  = torch.tensor(done, dtype=torch.float32)
+        print(f"[RepositionReplay] push EV={ev.id} r={float(r):.3f} a={a}")
         self.buffer_reposition.push(s_t, a_t, r_t, s2_t, d_t)

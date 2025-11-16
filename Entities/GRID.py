@@ -87,8 +87,10 @@ class Grid:
         for ev_id in self.evs:
             ev = ev_dict[ev_id]
             if (ev.state == EvState.IDLE and 
-                ev.status == "available" and 
-                ev.gridIndex == ev.sarns["action"]):
+                ev.status == "Idle" and
+                ev.sarns["reward"] in (None, 0.0)
+                #ev.gridIndex == ev.sarns["action"]
+                 ):
                 ids.append(ev_id)
         return ids
     

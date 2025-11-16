@@ -50,7 +50,7 @@ class RepositioningService:
                 #continue
             offers_g.sort(key=lambda x: x[0], reverse=True)
             # 4) Capacity: how many EVs this grid "needs"
-            imbalance = g.calculate_imbalance(evs, incidents)
+            imbalance = g.imbalance
             cap = max(0, imbalance)
             accepted = 0
             while accepted < cap and offers_g:
