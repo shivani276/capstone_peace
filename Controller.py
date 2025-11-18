@@ -9,6 +9,7 @@ import numpy as np
 
 from MAP_env import MAP
 from Entities.ev import EvState
+from utils.Epsilon import EpsilonScheduler, hard_update, soft_update
 from utils.Helpers import (
     build_daily_incident_schedule,
     point_to_grid_index,
@@ -18,6 +19,8 @@ from utils.Helpers import (
 
 from DQN import DQNetwork, ReplayBuffer
 from Entities.ev import EvState
+
+DIRECTION_ORDER = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
   
 NAV_K = 8
 class Controller:
@@ -32,18 +35,27 @@ class Controller:
         lng_col: Optional[str] = "Longitude",
         wkt_col: Optional[str] = None,
         
+        
     ):
         self.env = env
         self.ticks_per_ep = ticks_per_ep
         self.rng = random.Random(seed)
 
         # agent params
-        self.epsilon = 0.2
+        self.global_step = 0
+        self.epsilon_scheduler = EpsilonScheduler(
+        start=1.0,     # start high exploration
+        end=0.1,       # end at 10 percent random
+        decay_steps=5000
+        )
+        self.epsilon = 1.0 
+
+
         self.busy_fraction = 0.5
 
         # DQNs (state=19, action=9 [stay + 8 neighbours])
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        state_dim = 20
+        state_dim = 12
         action_dim = 9
         self.dqn_reposition_main = DQNetwork(state_dim, action_dim).to(self.device)
         self.dqn_reposition_target = DQNetwork(state_dim, action_dim).to(self.device)
@@ -62,6 +74,10 @@ class Controller:
         self.dqn_navigation_target.load_state_dict(self.dqn_navigation_main.state_dict())
         self.opt_navigation = torch.optim.Adam(self.dqn_navigation_main.parameters(), lr=1e-3)
         self.buffer_navigation = ReplayBuffer(100_000)
+
+        hard_update(self.dqn_reposition_target, self.dqn_reposition_main)
+        hard_update(self.dqn_navigation_target, self.dqn_navigation_main)
+
 
         print("[Controller] DQNs initialised:")
         print("  Reposition main / target:", sum(p.numel() for p in self.dqn_reposition_main.parameters()))
@@ -83,6 +99,40 @@ class Controller:
         self.max_idle_energy = E_MAX
         self.max_wait_time_HC = H_MAX
 
+    
+    def _get_direction_neighbors_for_index(self, index: int) -> list[int]:
+
+        n_rows = len(self.env.lat_edges) - 1
+        n_cols = len(self.env.lng_edges) - 1
+
+        cell_row = index // n_cols
+        cell_col = index % n_cols
+
+        # Offsets matching DIRECTION_ORDER
+        offset_map = {
+            "N":  (1, 0),
+            "NE": (1, 1),
+            "E":  (0, 1),
+            "SE": (-1, 1),
+            "S":  (-1, 0),
+            "SW": (-1, -1),
+            "W":  (0, -1),
+            "NW": (1, -1),
+        }
+
+        neighbours: list[int] = []
+        for dname in DIRECTION_ORDER:
+            dr, dc = offset_map[dname]
+            n_row = cell_row + dr
+            n_col = cell_col + dc
+
+            if 0 <= n_row < n_rows and 0 <= n_col < n_cols:
+                neighbours.append(n_row * n_cols + n_col)
+            else:
+                neighbours.append(-1)
+        return neighbours
+
+
     # ---------- state/action helpers ----------
     def _pad_neighbors(self, nbs: List[int]):
         N = 8
@@ -91,6 +141,11 @@ class Controller:
         #n_feat = [0 if x == -1 else x for x in n]
         return n #n_feat, mask
 
+
+    #==================REPOSITION DQN STUFF=====================#
+
+    #==============State=============================#
+    '''
     def _build_state(self, ev) -> list[float]:
         gi = ev.gridIndex
         g = self.env.grids[gi]
@@ -119,8 +174,39 @@ class Controller:
 
         # Total length: 2 (own) + 8*2 (neighbours) + 2 (idle) = 20
         return vec
+        '''
+    
+    def _build_state(self, ev) -> list[float]:
+        gi = ev.gridIndex
+        g = self.env.grids[gi]
 
+        # own imbalance
+        imb_self = float(g.calculate_imbalance(self.env.evs, self.env.incidents))
 
+        # neighbour imbalances in fixed direction order
+        neigh_indices = self._get_direction_neighbors_for_index(gi)
+        neigh_imbs: list[float] = []
+        for nb_idx in neigh_indices:
+            if nb_idx == -1:
+                neigh_imbs.append(0.0)
+            else:
+                nb_g = self.env.grids[nb_idx]
+                nb_imb = float(nb_g.calculate_imbalance(self.env.evs, self.env.incidents))
+                neigh_imbs.append(nb_imb)
+
+        # build state vector:
+        # [gi, imb_self, imb_N, imb_NE, ..., imb_NW, aggIdleTime, aggIdleEnergy]
+        vec: list[float] = []
+        vec.append(float(gi))
+        vec.append(imb_self)
+        vec.extend(neigh_imbs)
+        vec.append(float(ev.aggIdleTime))
+        vec.append(float(ev.aggIdleEnergy))
+
+        return vec
+
+    #=========================ACTION=================================#
+    '''
     def _select_action(self, state_vec: list[float], gi: int) -> int:
         # 9 slots: [stay] + 8 neighbours (padded)
         nbs = self.env.grids[gi].neighbours
@@ -140,6 +226,100 @@ class Controller:
                 q[i] = -1e9
         slot = int(np.argmax(q))
         return actions[slot]
+        '''
+    def _select_action(self, state_vec: list[float], gi: int) -> int:
+
+        neighbours = self._get_direction_neighbors_for_index(gi)  # len 8
+
+        # validity mask: stay is always valid; moves valid only if neighbour exists
+        valid_mask = [1]  # slot 0 (stay)
+        for nb_idx in neighbours:
+            valid_mask.append(1 if nb_idx != -1 else 0)
+
+        # epsilon-greedy over slots 0..8
+        if self.rng.random() < self.epsilon:
+            valid_slots = [i for i, m in enumerate(valid_mask) if m == 1]
+            slot = self.rng.choice(valid_slots) if valid_slots else 0
+        else:
+            s = torch.tensor(state_vec, dtype=torch.float32, device=self.device).unsqueeze(0)
+            q = self.dqn_reposition_main(s).detach().cpu().numpy().ravel()  # shape (9,)
+            # mask invalid actions
+            for i, m in enumerate(valid_mask):
+                if m == 0:
+                    q[i] = -1e9
+            slot = int(np.argmax(q))
+
+        # map slot back to actual grid index
+        if slot == 0:
+            return gi  # stay
+        else:
+            dir_index = slot - 1          # 0..7
+            nb_idx = neighbours[dir_index]
+            return nb_idx if nb_idx != -1 else gi
+
+    
+    #==================Push Reposition Experiences===============#
+    def _push_reposition_transition(self, ev) -> None:
+        """
+        Take what we stored in ev.sarns, build s', and push (s,a,r,s').
+        """
+        s  = ev.sarns.get("state")
+        a  = ev.sarns.get("action")
+        r  = ev.sarns.get("reward")
+        if s is None or a is None:
+            return
+        # next-state is built wrt the EV's chosen nextGrid if accepted,
+        # otherwise its current grid (stay)
+        if ev.state == EvState.IDLE and ev.status == "Repositioning":
+            next_g = ev.gridIndex
+
+        s2 = self._build_state(ev)
+        done = 0.0  # not terminal at this stage
+
+        # push to replay (tensorise once; buffer will normalise if needed)
+        import torch
+        s_t  = torch.tensor(s,  dtype=torch.float32)
+        a_t  = torch.tensor(a,  dtype=torch.int64)
+        r_t  = torch.tensor(r,  dtype=torch.float32)
+        s2_t = torch.tensor(s2, dtype=torch.float32)
+        d_t  = torch.tensor(done, dtype=torch.float32)
+        print(f"[RepositionReplay] push EV={ev.id} r={float(r):.3f} a={a}")
+        self.buffer_reposition.push(s_t, a_t, r_t, s2_t, d_t)
+
+    #==================Train Reposition==========================#
+    import torch.nn.functional as F
+
+    def _train_reposition(self, batch_size: int = 64, gamma: float = 0.99) -> None:
+        if len(self.buffer_reposition) < batch_size:
+            return
+
+        # sample from replay buffer
+        states, actions, rewards, next_states, dones = self.buffer_reposition.sample(
+            batch_size,
+            device=self.device
+        )
+
+        # Q(s,a) from main net
+        q_values = self.dqn_reposition_main(states)
+        q_sa = q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
+
+        # target: r + gamma * max_a' Q_target(s',a')
+        with torch.no_grad():
+            q_next = self.dqn_reposition_target(next_states).max(1)[0]
+            target = rewards + gamma * (1.0 - dones) * q_next
+
+        loss = F.smooth_l1_loss(q_sa, target)
+
+        self.opt_reposition.zero_grad()
+        loss.backward()
+        self.opt_reposition.step()
+
+        # soft-update target net
+        tau = 0.005
+        for t_param, o_param in zip(self.dqn_reposition_target.parameters(),
+                                    self.dqn_reposition_main.parameters()):
+            t_param.data.mul_(1.0 - tau).add_(tau * o_param.data)
+
 
     # ---------- episode reset ----------
     def _reset_episode(self) -> None:
@@ -212,6 +392,10 @@ class Controller:
             self.env.create_incident(grid_index=gi, location=(lat, lng), priority="MED")
 
     def _tick(self, t: int) -> None:
+
+        #Hard_update
+        hard_update(self.dqn_reposition_target, self.dqn_reposition_main)
+
         # 1) spawn incidents for this tick
         self._spawn_incidents_for_tick(t)
         
@@ -235,6 +419,10 @@ class Controller:
         for ev in self.env.evs.values():
             if ev.state == EvState.IDLE and ev.status == "Repositioning":
                 self._push_reposition_transition(ev)
+        
+        # after the loop that calls _push_reposition_transition(ev)
+        self._train_reposition(batch_size=64, gamma=0.99)
+
                 
         # 4) Gridwise dispatch (Algorithm 2) using EVs that stayed/rejected
         dispatches = self.env.dispatch_gridwise(beta=0.5)
@@ -247,7 +435,7 @@ class Controller:
                 a_gi = self._select_action(state_vec, ev.gridIndex)
                 ev.sarns["action"] = a_gi
 
-        
+        '''
         # 5) Debug snapshot so you can see it running
         todays = self._schedule.get(t, []) if self._schedule else []
         accepted = sum(
@@ -258,7 +446,22 @@ class Controller:
         print(
             f"Tick {t:03d} | incidents+{len(todays):2d} | offers={n_offers:2d} | "
             f"accepted={accepted:2d} | dispatched={len(dispatches):2d}"
-        )
+        )'''
+
+        self.env.update_after_timeslot(8)
+        
+        '''for g in self.env.grids.values():
+            vehicle_id = []
+            vehicle_id = g.evs
+            print("Before", vehicle_id)
+                  
+        
+
+        for g in self.env.grids.values():
+            vehicle_id = []
+            vehicle_id = g.evs
+            print("After", vehicle_id)
+        '''
         '''
         # 6) NAV per tick (only for dispatched EVs)
         #    Update hospital waits, then choose hospital via DQN (action), reward = U^N, store transition.
@@ -312,11 +515,55 @@ class Controller:
         self._train_navigation(batch_size=64, gamma=0.99)'''
 
 
+    def run_training_episode(self, episode_idx: int) -> dict:
+        self._reset_episode()
+
+        total_rep_reward = 0.0
+        n_rep_moves = 0
+        total_dispatched = 0
+
+        for t in range(self.ticks_per_ep):
+            self._tick(t)
+
+            # collect simple stats
+            for ev in self.env.evs.values():
+                r = ev.sarns.get("reward")
+                if r not in (None, 0.0):
+                    total_rep_reward += float(r)
+                    n_rep_moves += 1
+
+            # you already get dispatches count from dispatch_gridwise,
+            # but easiest is: count SERVICING incidents
+            n_servicing = sum(
+                1 for inc in self.env.incidents.values()
+                if inc.status.name == "SERVICING"
+            )
+            total_dispatched = max(total_dispatched, n_servicing)
+
+        avg_rep_reward = total_rep_reward / max(1, n_rep_moves)
+
+        stats = {
+            "episode": episode_idx,
+            "avg_rep_reward": avg_rep_reward,
+            "rep_moves": n_rep_moves,
+            "max_servicing": total_dispatched,
+            "total_incidents": len(self.env.incidents),
+        }
+
+        print(
+            f"[EP {episode_idx:03d}] avg_rep_reward={avg_rep_reward:.3f} "
+            f"moves={n_rep_moves:3d} servicing_max={total_dispatched:3d} "
+            f"incidents={len(self.env.incidents):3d}"
+        )
+
+        return stats
 
     
 
-    def run_one_episode(self) -> None:
+    '''def run_one_episode(self) -> None:
         print("[Controller] Resetting episode...")
+        
+
         self._reset_episode()
         
 
@@ -333,11 +580,11 @@ class Controller:
             print("[Controller] Warning: Schedule not built — no incidents will spawn.")
 
         # Only run 5 ticks for debugging
-        for t in range(5):
+        for t in range(180):
             self._tick(t)
 
         print(f"[Controller] Episode debug run complete. Total incidents created: {len(self.env.incidents)}")
-
+        '''
     '''
     # ---------- run one episode ----------
     def run_one_episode(self) -> None:
@@ -370,42 +617,12 @@ class Controller:
         offers = 0
         
         for ev in self.env.evs.values():
-            '''
-            if ev.state != EvState.IDLE or ev.status != "available":
-                ev.nextGrid = ev.gridIndex
-                ev.sarns["state"] = None
-                ev.sarns["action"] = None
-                ev.sarns["utility"] = None
-                ev.sarns["reward"] = 0.0
-                ev.sarns["next_state"] = None
-                continue
 
-            s_vec = self._build_state(ev)
-            a_gi  = self._select_action(s_vec, ev.gridIndex)
-
-            ev.sarns["state"] = s_vec
-            ev.sarns["action"] = a_gi
-            '''
             a_gi = ev.sarns["action"]
 
             if a_gi == ev.nextGrid and ev.status == "Repositioning" :
                 offers += 1
-                '''
-                # “Stay” is NOT a reposition offer
-                ev.nextGrid = ev.gridIndex
-                ev.sarns["utility"] = None
-                ev.sarns["reward"] = 0.0   # no reward from acceptance step
-                ev.sarns["next_state"] = None
-                continue  # do not count as an offer
-                '''
-            # Only moving proposals get a utility and enter acceptance
-
-            #ev.sarns["utility"] = float(u)
-            #ev.sarns["reward"] = None
-            #ev.sarns["next_state"] = None
-            #ev.nextGrid = ev.gridIndex  # pending; only changes if accepted
             
-
         return offers
     
 
@@ -494,56 +711,4 @@ class Controller:
 
         if self.nav_step % 500 == 0:
             print(f"[Controller] NAV train step={self.nav_step} loss={loss.item():.4f}")
-
-    '''def _build_state_for_grid(self, ev, grid_index: int) -> list[float]:
-
-        # neighbour list of target grid
-        nbs = self.env.grids[grid_index].neighbours
-        # pack (nb_index, nb_imbalance) pairs into a fixed-size slice
-        pairs = []
-        for gi in nbs:
-            pairs.append(gi)
-            # Use new Grid method to calculate imbalance (OOP refactor)
-            pairs.append(self.env.grids[gi].calculate_imbalance(self.env.evs, self.env.incidents))
-        # pad to a fixed length if you use a cap (e.g., 16 values)
-        MAX_PAIRS = 8  # 8 neighbours
-        while len(pairs) < 2 * MAX_PAIRS:
-            pairs.append(0)
-        pairs = pairs[: 2 * MAX_PAIRS]
-
-        # add own grid and EV accumulators
-        s = [
-            grid_index,
-            # Use new Grid method to calculate imbalance (OOP refactor)
-            self.env.grids[grid_index].calculate_imbalance(self.env.evs, self.env.incidents),
-            ev.aggIdleTime,
-            ev.aggIdleEnergy,
-        ] + pairs
-        return [float(x) for x in s]'''
-
-    def _push_reposition_transition(self, ev) -> None:
-        """
-        Take what we stored in ev.sarns, build s', and push (s,a,r,s').
-        """
-        s  = ev.sarns.get("state")
-        a  = ev.sarns.get("action")
-        r  = ev.sarns.get("reward")
-        if s is None or a is None:
-            return
-        # next-state is built wrt the EV's chosen nextGrid if accepted,
-        # otherwise its current grid (stay)
-        if ev.state == EvState.IDLE and ev.status == "Repositioning":
-            next_g = ev.gridIndex
-
-        s2 = self._build_state(ev)
-        done = 0.0  # not terminal at this stage
-
-        # push to replay (tensorise once; buffer will normalise if needed)
-        import torch
-        s_t  = torch.tensor(s,  dtype=torch.float32)
-        a_t  = torch.tensor(a,  dtype=torch.int64)
-        r_t  = torch.tensor(r,  dtype=torch.float32)
-        s2_t = torch.tensor(s2, dtype=torch.float32)
-        d_t  = torch.tensor(done, dtype=torch.float32)
-        print(f"[RepositionReplay] push EV={ev.id} r={float(r):.3f} a={a}")
-        self.buffer_reposition.push(s_t, a_t, r_t, s2_t, d_t)
+    
