@@ -149,7 +149,8 @@ def build_daily_incident_schedule(
 # -----------------------------
 # Reward / Utility helpers
 # -----------------------------
-
+#Function safe norm is not required
+'''
 def _safe_norm(x: float, xmin: float, xmax: float, invert: bool = False) -> float:
     """Map x in [xmin, xmax] → [0,1]. Clamp outside. If invert=True, flip to 1 - norm."""
     if xmax <= xmin:
@@ -157,75 +158,71 @@ def _safe_norm(x: float, xmin: float, xmax: float, invert: bool = False) -> floa
     x = max(min(x, xmax), xmin)
     n = (x - xmin) / (xmax - xmin)
     return 1.0 - n if invert else n
-
-
-# ---- Navigation utility (busyness) ----
+'''
+#Navigation utility
 def utility_navigation(W_busy: float, H_min: float = 0.0, H_max: float = H_MAX) -> float:
-    """
-    Higher W_busy → worse navigation utility (more congestion/wait to navigate).
-    Map to [0,1], where 1 is best utility.
-    """
-    # If busy is low (below H_min) => utility ~1; if high (above H_max) => utility ~0
-    return _safe_norm(W_busy, H_min, H_max, invert=True)
+  if W_busy < H_min:
+    U_N =1
+  elif H_min<W_busy<H_max:
+    U_N = (W_busy-H_min)/(H_max-H_min)
+  else:
+    U_N =0
+  return U_N
 
-
-# ---- Dispatch utilities (vehicle idle & patient wait) ----
+#Dispatch utilities
 def utility_dispatch_v(W_idle: float, W_min: float = 0.0, W_max: float = W_MAX) -> float:
-    """
-    Vehicle-side utility: if EV has waited idly longer (W_idle high), reward dispatching it.
-    Returns in [0,1], higher means better to dispatch this EV now.
-    """
-    # Normalize idle to [0,1]; more idle → closer to 1
-    return _safe_norm(W_idle, W_min, W_max, invert=False)
-
-
+  #U_V calcluation
+  if W_idle>W_max:
+    U_V = W_idle/W_max
+  else:
+    U_V =1
+  return U_V
 def utility_dispatch_p(W_kt: float, P_min: float = 0.0, P_max: float = P_MAX) -> float:
-    """
-    Patient-side utility: if patient time (W_kt) is high, reward dispatch (urgent).
-    Returns in [0,1], higher means more urgent to dispatch.
-    """
-    return _safe_norm(W_kt, P_min, P_max, invert=False)
+  #U_P calcluation
+  if W_kt>P_max:
+    U_P = W_kt/P_max
+  else:
+    U_P =1
+  return U_P
+def utility_dispatch_total(W_idle: float, W_kt: float, beta: float = 0.5, W_min: float = 0.0,
+    W_max: float = 1.0, P_min: float = 0.0, P_max: float = 1.0) -> float:
+  U_V = utility_dispatch_v(W_idle)
+  U_P = utility_dispatch_p(W_kt)
+  U_D = beta * U_V + (1-beta)*U_P
+  return U_D
 
+#Repositioning utility
+def utility_repositioning(W_idle: float, E_idle: float, alpha: float = 0.5, W_min: float = 0.0, W_max: float = W_MAX,
+    E_min: float = 0.0, E_max: float = E_MAX) -> float:
+    #U_RW calcluation
+    if W_idle < W_min:
+        U_RW =1
+    elif W_min<W_idle<W_max:
+        U_RW = (W_idle-W_min)/(W_max-W_min) # To be verified with U_RW = (W_max-W_idle)/(W_max-W_min)
+    else:
+        U_RW =0
+    #U_RE calculation
+    if E_idle < E_min:
+        U_RE =1
+    elif E_min<E_idle<E_max:
+        U_RE = (E_max-E_idle)/(E_max-E_min)
+    else:
+        U_RE = 0
+    #overall U_R
+    alpha=0.5
+    U_R = alpha * U_RW + (1.0-alpha)*U_RE
+    return U_R
 
-def utility_dispatch_total(
-    W_idle: float,
-    W_kt: float,
-    beta: float = 0.5,
-    W_min: float = 0.0,
-    W_max: float = 1.0,
-    P_min: float = 0.0,
-    P_max: float = 1.0,
-    
-) -> float:
-    """
-    Combined dispatch utility U_D = beta*U_V + (1-beta)*U_P in [0,1].
-    """
-    U_V = utility_dispatch_v(W_idle, W_min, W_max)
-    U_P = utility_dispatch_p(W_kt, P_min, P_max)
-    return beta * U_V + (1.0 - beta) * U_P
-
-
-# ---- Repositioning utility (workload vs energy) ----
-def utility_repositioning(
-    W_idle: float,
-    E_idle: float,
-    alpha: float = 0.2,
-    W_min: float = 0.0,
-    W_max: float = W_MAX,
-    E_min: float = 0.0,
-    E_max: float = E_MAX,
-) -> float:
-    """
-    Repositioning utility combines:
-    - U_RW: workload term (prefer moving from lower-workload to higher-need areas).
-            If W_idle is HIGH, utility is HIGH (invert=False).
-    - U_RE: energy term (prefer lower energy cost). If E_idle is HIGH, utility LOW (invert=True).
-    U_R = alpha*U_RW + (1-alpha)*U_RE  in [0,1].
-    """
-    U_RW = _safe_norm(W_idle, W_min, W_max, invert=False)
-    U_RE = _safe_norm(E_idle, E_min, E_max, invert=True)
-    return alpha * U_RW + (1.0 - alpha) * U_RE
-
+'''
+#Testing
+W_BUSY = 20.54, W_KT = 8.25, W_IDLE = 27.14, E_IDLE = 15.20
+alpha = 0.5, beta=0.5 
+print("Dispatch utility V: ", utility_dispatch_v(W_IDLE, W_MIN, W_MAX))
+print("Dispatch utility P: ", utility_dispatch_p(W_KT, P_MIN,P_MAX))
+print("Dispatch utility Total: ", utility_dispatch_total(W_IDLE, W_KT, beta, W_MIN, W_MAX, P_MIN, P_MAX))
+print("Navigation utility: ", utility_navigation(W_BUSY, H_MIN, H_MAX))
+print("Repositioning utility: ", utility_repositioning(W_IDLE,E_IDLE,alpha,W_MIN,W_MAX,E_MIN,E_MAX))
+'''
 
 # ---- Optional: simple reward wrappers you can call during learning ----
 
