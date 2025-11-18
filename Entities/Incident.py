@@ -43,6 +43,7 @@ class Incident:
     def assign_ev(self, ev_id: int) -> None:
         self.assignedEvId = ev_id
         self.status = IncidentStatus.ASSIGNED
+        
 
     '''def start_service(self) -> None:
         self.status = IncidentStatus.SERVICING
