@@ -333,11 +333,13 @@ class MAP:
                     if inc is not None:
                         self.move_ev_to_grid(ev.id, inc.gridIndex)
 
+
             # 3) Accepted reposition: execute energy/time cost + move
             elif ev.status == "Repositioning" and ev.sarns.get("reward") is not None:
                 ev.execute_reposition()
                 if ev.nextGrid is not None:
                     self.move_ev_to_grid(ev.id, ev.nextGrid)
+                    ev.sarns["action"]=None
                 # optional: reset status after move
                 # ev.status = "available"
                 # ev.nextGrid = None
