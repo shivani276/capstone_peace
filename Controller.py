@@ -18,7 +18,7 @@ from utils.Helpers import (
 )
 
 from DQN import DQNetwork, ReplayBuffer
-from Entities.ev import EvState
+from Entities.Incident import IncidentStatus
 
 DIRECTION_ORDER = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
   
@@ -536,7 +536,7 @@ class Controller:
             # but easiest is: count SERVICING incidents
             n_servicing = sum(
                 1 for inc in self.env.incidents.values()
-                if inc.status.name == "SERVICING"
+                if inc.status == IncidentStatus.ASSIGNED
             )
             total_dispatched = max(total_dispatched, n_servicing)
 
