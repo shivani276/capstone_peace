@@ -204,6 +204,7 @@ class Controller:
         vec.append(float(ev.aggIdleEnergy))
 
         return vec
+    
     def build_state_nav(self, ev) -> list[float]:
         gi = ev.gridIndex
         g = self.env.grids[gi] #from dictionary
@@ -218,6 +219,7 @@ class Controller:
             wg_h = eta + wait
             vec_n.append(wg_h)
             #as many hospitals those many get appended to state vector
+        return vec_n
 
 
 
@@ -432,7 +434,7 @@ class Controller:
         # 3) Algorithm 1: accept offers (sets nextGrid and reward; no movement yet)
         self.env.accept_reposition_offers()
         
-        n_offers = self._build_offers_for_idle_evs()
+        #n_offers = self._build_offers_for_idle_evs()
 
         #update state, action, reward and next_state in replay buffer
         #i am messign with this part hoping it wont blow up, any way this is the older version
@@ -450,11 +452,11 @@ class Controller:
 
                 
         # 4) Gridwise dispatch (Algorithm 2) using EVs that stayed/rejected
-<<<<<<< Updated upstream
+
         #dispatches = self.env.dispatch_gridwise(beta=0.5)
-=======
-        dispatches = self.env.dispatch_gridwise(beta=0.5) #diff update for borrowed
->>>>>>> Stashed changes
+
+        #dispatches = self.env.dispatch_gridwise(beta=0.5) #diff update for borrowed
+
 
         # 5) build states and actions for IDLE EVs only
         for ev in self.env.evs.values():
