@@ -23,6 +23,7 @@ class EV:
 
     aggIdleTime: float = 0.0
     aggIdleEnergy: float = 0.0
+    aggBusyTime: float = 0.0
     navTargetHospitalId: int | None = None  # hospital currently chosen for navigation
     navEtaMinutes: float = 0.0              # latest ETA to that hospital
     navUtility: float = 0.0                 
@@ -55,6 +56,8 @@ class EV:
 
     def add_idle(self, dt: float) -> None:
         self.aggIdleTime += dt
+    def add_busy(self, dt: float) -> None:
+        self.aggBusyTime += dt
 
 
     # ========== Repositioning logic ==========
