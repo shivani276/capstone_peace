@@ -204,6 +204,25 @@ class Controller:
         vec.append(float(ev.aggIdleEnergy))
 
         return vec
+    def build_state_nav(self, ev) -> list[float]:
+        gi = ev.gridIndex
+        g = self.env.grids[gi] #from dictionary
+        h_list = self.env.hospitals    #from dictionary
+        vec_n: list[float] = []
+        for h in h_list.values():
+            if h.gridIndex == gi:
+                eta = 0.0
+            else:
+                eta = h.estimate_eta_minutes(ev.location[0], ev.location[1])
+            wait = float(getattr(h, "waitTime", 0.0)) #right now this waittime attribute is zero in entities.py, needs to be a random process
+            wg_h = eta + wait
+            vec_n.append(wg_h)
+            #as many hospitals those many get appended to state vector
+
+
+
+      
+   
 
     #=========================ACTION=================================#
     '''
@@ -416,8 +435,14 @@ class Controller:
         n_offers = self._build_offers_for_idle_evs()
 
         #update state, action, reward and next_state in replay buffer
-        for ev in self.env.evs.values():
+        #i am messign with this part hoping it wont blow up, any way this is the older version
+        '''for ev in self.env.evs.values():
             if ev.state == EvState.IDLE and ev.status == "Repositioning":
+                self._push_reposition_transition(ev)'''
+        #moved this one line here from below
+        dispatches = self.env.dispatch_gridwise(beta=0.5)
+        for ev in self.env.evs.values():
+            if ev.state == EvState.IDLE:
                 self._push_reposition_transition(ev)
         
         # after the loop that calls _push_reposition_transition(ev)
@@ -425,15 +450,19 @@ class Controller:
 
                 
         # 4) Gridwise dispatch (Algorithm 2) using EVs that stayed/rejected
-        dispatches = self.env.dispatch_gridwise(beta=0.5)
+        #dispatches = self.env.dispatch_gridwise(beta=0.5)
 
         # 5) build states and actions for IDLE EVs only
         for ev in self.env.evs.values():
             if ev.state == EvState.BUSY and ev.status == "Navigation":
-                state_vec = self._build_state(ev)
+                state_vec = self._build_state(ev) #this is the same as idle
+                #replace this with the below navigation state builder
+                #state_vec = self.build_state_nav(ev)
                 ev.sarns["state"] = state_vec
                 a_gi = self._select_action(state_vec, ev.gridIndex)
                 ev.sarns["action"] = a_gi
+                #ev.destgrid = a_gi
+
 
         '''
         # 5) Debug snapshot so you can see it running
