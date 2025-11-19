@@ -324,7 +324,7 @@ class MAP:
             beta=beta,
         )
 
-    def choose_hospital_for_ev(self, ev_id: int, inc_id: int) -> Tuple[int, float]:
+    def choose_hospital_for_ev(self, ev_id: int, inc_id: int) -> None:
         """
         Select the best (nearest) hospital for a patient incident.
         
@@ -338,7 +338,8 @@ class MAP:
             Tuple of (hospital_id, eta_minutes)
         """
         inc = self.incidents[inc_id]
-        return self.navigator.select_hospital_for_incident(inc, self.hospitals)
+        evs = self.evs[ev_id]
+        return self.navigator.select_hospital_for_incident(inc, self.hospitals,evs)
 
     def get_nav_candidates(self, inc_id: int, max_k: int = 8) -> Tuple[List[int], List[float], List[float]]:
         """
@@ -386,11 +387,13 @@ class MAP:
                 # ev.nextGrid = None
 
             elif ev.state == EvState.BUSY:
+                '''
                 hc_id = ev.navTargetHospitalId
                 if hc_id is not None:
                     hospital = self.hospitals.get(hc_id)
                     if hospital is not None and getattr(hospital, "gridIndex", None) is not None:
                         ev.nextGrid = self.next_grid_towards(ev.gridIndex, hospital.gridIndex)
+                        '''
 
 
         # Incident updates
