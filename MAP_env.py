@@ -227,6 +227,47 @@ class MAP:
             eps = rng.uniform(-lam, lam)
             hc.waitTime = max(wmin, min(wmax, hc.waitTime * math.exp(eps)))
 
+
+    def next_grid_towards(self, from_idx: int, to_idx: int) -> int:
+
+        if from_idx == to_idx:
+            return from_idx
+
+        n_rows = len(self.lat_edges) - 1
+        n_cols = len(self.lng_edges) - 1
+
+        # current cell
+        row_from = from_idx // n_cols
+        col_from = from_idx % n_cols
+
+        # target cell
+        row_to = to_idx // n_cols
+        col_to = to_idx % n_cols
+
+        # step direction in row/col: -1, 0, or 1
+        dr = 0
+        if row_to > row_from:
+            dr = 1
+        elif row_to < row_from:
+            dr = -1
+
+        dc = 0
+        if col_to > col_from:
+            dc = 1
+        elif col_to < col_from:
+            dc = -1
+
+        # take one step
+        new_row = row_from + dr
+        new_col = col_from + dc
+
+        # safety clamp (should already be in bounds)
+        new_row = max(0, min(n_rows - 1, new_row))
+        new_col = max(0, min(n_cols - 1, new_col))
+
+        return new_row * n_cols + new_col
+
+
     # ========== ALGORITHMS (delegated to services) ==========
     
     def accept_reposition_offers(self) -> None:
@@ -343,6 +384,14 @@ class MAP:
                 # optional: reset status after move
                 # ev.status = "available"
                 # ev.nextGrid = None
+
+            elif ev.state == EvState.BUSY:
+                hc_id = ev.navTargetHospitalId
+                if hc_id is not None:
+                    hospital = self.hospitals.get(hc_id)
+                    if hospital is not None and getattr(hospital, "gridIndex", None) is not None:
+                        ev.nextGrid = self.next_grid_towards(ev.gridIndex, hospital.gridIndex)
+
 
         # Incident updates
         to_delete = []
