@@ -33,6 +33,7 @@ class EV:
 
     def assign_incident(self, patient_id: int) -> None:
         self.assignedPatientId = patient_id
+        self.state = EvState.BUSY
         self.status = "Dispatching"
         self.aggIdleEnergy = 0.0
         self.aggIdleTime = 0.0
