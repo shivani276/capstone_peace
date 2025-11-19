@@ -387,6 +387,7 @@ class MAP:
                 # ev.nextGrid = None
 
             elif ev.state == EvState.BUSY:
+                ev.add_busy(8)
                 '''
                 hc_id = ev.navTargetHospitalId
                 if hc_id is not None:
