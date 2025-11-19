@@ -5,6 +5,7 @@ Navigation service: handles hospital selection and route planning for EVs.
 from typing import Dict, Tuple
 from Entities.Incident import Incident
 from Entities.Hospitals import Hospital
+from Entities.ev import EV
 
 
 class NavigationService:
@@ -14,17 +15,24 @@ class NavigationService:
     def select_hospital_for_incident(
         incident: Incident,
         hospitals: Dict[int, Hospital],
-    ) -> Tuple[int, float]:
+        evs: EV
+    ) -> int:
 
-        best_hid, best_eta = -1, float("inf")
+        best_hid, best_w_busy = -1, float("inf")
         patient_lat, patient_lng = incident.location
         
         for hid, hc in hospitals.items():
             eta = hc.estimate_eta_minutes(patient_lat, patient_lng, kmph=40.0)
-            if eta < best_eta:
-                best_eta, best_hid = eta, hid
-        
-        return best_hid, best_eta
+            wait = float(getattr(hc, "waitTime", 0.0))
+            W_Busy = eta+wait
+            if W_Busy < best_w_busy:
+                best_w_busy, best_hid = eta, hid
+            
+        if best_hid is not None:
+            best_hc = hospitals[best_hid]
+            
+        return best_hid
+
     
     @staticmethod
     def get_candidate_hospitals(
