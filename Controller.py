@@ -450,7 +450,11 @@ class Controller:
 
                 
         # 4) Gridwise dispatch (Algorithm 2) using EVs that stayed/rejected
+<<<<<<< Updated upstream
         #dispatches = self.env.dispatch_gridwise(beta=0.5)
+=======
+        dispatches = self.env.dispatch_gridwise(beta=0.5) #diff update for borrowed
+>>>>>>> Stashed changes
 
         # 5) build states and actions for IDLE EVs only
         for ev in self.env.evs.values():
