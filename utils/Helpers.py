@@ -306,17 +306,3 @@ def travel_minutes(lat1: float, lon1: float, lat2: float, lon2: float, kmph: flo
     """ETA in minutes at constant average speed."""
     km = haversine_km(lat1, lon1, lat2, lon2)
     return 60.0 * km / max(kmph, 1e-6)
-
-def utility_navigation_un(W_busy: float, H_min: float, H_max: float) -> float:
-    """
-    Eq. (14) piecewise:
-      1                       if W_busy >= H_max
-      (W_busy - H_min)/(H_max - H_min)  if H_min <= W_busy < H_max
-      0                       otherwise
-    Interpreting W_busy as 'remaining drop-off slack'; more slack => better utility.
-    """
-    if W_busy >= H_max:
-        return 1.0
-    if W_busy >= H_min:
-        return (W_busy - H_min) / max(H_max - H_min, 1e-6)
-    return 0.0
