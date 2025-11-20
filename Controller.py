@@ -38,6 +38,7 @@ class Controller:
         
     ):
         self.env = env
+        print("[DEBUG] hospitals at Controller init:", len(self.env.hospitals))
         self.ticks_per_ep = ticks_per_ep
         self.rng = random.Random(seed)
 
@@ -350,7 +351,7 @@ class Controller:
         s  = ev.sarns.get("state")
         a  = ev.sarns.get("action")
         r  = ev.sarns.get("reward")
-        if s is None or a is None:
+        if s is None or a is None and r is not None:
             return
         # next-state is built wrt the EV's chosen nextGrid if accepted,
         # otherwise its current grid (stay)
@@ -510,11 +511,10 @@ class Controller:
                 ev.navUtility = 0.0
             # clear SARNS
             ev.sarns.clear()
-            ev.sarns["state"] = None
-            ev.sarns["action"] = None
-            ev.sarns["utility"] = None
-            ev.sarns["reward"] = None
-            ev.sarns["next_state"] = None
+            ev.sarns["state"] = []
+            ev.sarns["action"] = 0.0
+            ev.sarns["reward"] = 0.0
+            ev.sarns["next_state"] = []
 
         # 4) pick a random day and build schedule
         series = pd.to_datetime(self.df[self.time_col], errors="coerce").dt.normalize().dropna()

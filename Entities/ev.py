@@ -30,7 +30,7 @@ class EV:
     navUtility: float = 0.0                 
 
     # sarns now a dict, as requested
-    sarns: Dict[str, Any] = field(default_factory=dict)
+    sarns: Dict[str, float ] = field(default_factory=dict)
 
     def assign_incident(self, patient_id: int) -> None:
         self.assignedPatientId = patient_id
