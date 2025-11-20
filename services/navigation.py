@@ -6,6 +6,7 @@ from typing import Dict, Tuple
 from Entities.Incident import Incident
 from Entities.Hospitals import Hospital
 from Entities.ev import EV
+from utils.Helpers import utility_navigation
 
 
 class NavigationService:
@@ -33,7 +34,7 @@ class NavigationService:
             best_hc.currentEvId = evs.id
             evs.navTargetHospitalId = best_hid
             evs.nextGrid = best_hc.gridIndex
-            
+            evs.sarns["reward"] = utility_navigation(best_w_busy)
 
 
     

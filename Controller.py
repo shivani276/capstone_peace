@@ -277,6 +277,22 @@ class Controller:
             dir_index = slot - 1          # 0..7
             nb_idx = neighbours[dir_index]
             return nb_idx if nb_idx != -1 else gi
+        
+
+    def _select_nav_action(self, s_vec: list[float], mask: list[int]) -> int:
+
+        import numpy as np
+        if self.rng.random() < self.epsilon:
+            valid = [i for i, m in enumerate(mask) if m == 1]
+            return self.rng.choice(valid) if valid else 0
+
+        s = torch.tensor(s_vec, dtype=torch.float32, device=self.device).unsqueeze(0)
+        q = self.dqn_navigation_main(s).detach().cpu().numpy().ravel()
+        for i, m in enumerate(mask):
+            if m == 0:
+                q[i] = -1e9
+        return int(np.argmax(q))
+
 
     
     #==================Push Reposition Experiences===============#
@@ -444,7 +460,7 @@ class Controller:
         #moved this one line here from below
         dispatches = self.env.dispatch_gridwise(beta=0.5)
         for ev in self.env.evs.values():
-            if ev.state == EvState.IDLE:
+            if ev.state == EvState.IDLE or ev.status == "Dispatching":
                 self._push_reposition_transition(ev)
         
         # after the loop that calls _push_reposition_transition(ev)
@@ -663,23 +679,8 @@ class Controller:
 
     #======================NAVIGATION============================#
 
-    def _build_nav_state(self, inc_id: int) -> tuple[list[float], list[int], list[int]]:
-        
-        hids, etas, waits = self.env.get_nav_candidates(inc_id, max_k=NAV_K)
 
-        # normalise by H_MAX so values are ~0..1
-        feats: list[float] = []
-        for i in range(NAV_K):
-            if i < len(hids):
-                feats.append(etas[i] / max(H_MAX, 1e-6))
-                feats.append(waits[i] / max(H_MAX, 1e-6))
-            else:
-                feats.extend([0.0, 0.0])
-
-        mask = [1]*len(hids) + [0]*(NAV_K - len(hids))
-        return feats, hids, mask
-
-    def _select_nav_action(self, s_vec: list[float], mask: list[int]) -> int:
+    '''def _select_nav_action(self, s_vec: list[float], mask: list[int]) -> int:
         """
         Epsilon-greedy over NAV_K slots. Returns slot index 0..NAV_K-1.
         Masked slots are invalid.
@@ -694,7 +695,7 @@ class Controller:
         for i, m in enumerate(mask):
             if m == 0:
                 q[i] = -1e9
-        return int(np.argmax(q))
+        return int(np.argmax(q))'''
     
     #========================NAV-STATE-ACTION=======================#
 
