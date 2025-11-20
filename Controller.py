@@ -14,7 +14,7 @@ from utils.Helpers import (
     build_daily_incident_schedule,
     point_to_grid_index,
     W_MIN, W_MAX, E_MIN, E_MAX,H_MIN, H_MAX,
-    utility_repositioning,
+    utility_navigation,
 )
 
 from DQN import DQNetwork, ReplayBuffer
@@ -222,7 +222,7 @@ class Controller:
             #as many hospitals those many get appended to state vector
         return vec_n
 
-    def build_state_nav(self, ev):
+    def build_state_nav1(self, ev):
         """
         Navigation state over ALL hospitals.
         Returns:
@@ -354,7 +354,7 @@ class Controller:
             return
         # next-state is built wrt the EV's chosen nextGrid if accepted,
         # otherwise its current grid (stay)
-        if ev.state == EvState.IDLE and ev.status == "Repositioning":
+        if ev.state == EvState.IDLE:
             next_g = ev.gridIndex
 
         s2 = self._build_state(ev)
@@ -367,7 +367,7 @@ class Controller:
         r_t  = torch.tensor(r,  dtype=torch.float32)
         s2_t = torch.tensor(s2, dtype=torch.float32)
         d_t  = torch.tensor(done, dtype=torch.float32)
-        print(f"[RepositionReplay] push EV={ev.id} r={float(r):.3f} a={a}")
+        #print(f"[RepositionReplay] push EV={ev.id} r={float(r):.3f} a={a}")
         self.buffer_reposition.push(s_t, a_t, r_t, s2_t, d_t)
 
     #==================Train Reposition==========================#
@@ -404,7 +404,78 @@ class Controller:
                                     self.dqn_reposition_main.parameters()):
             t_param.data.mul_(1.0 - tau).add_(tau * o_param.data)
 
+    #=====================PUSH NAVIGATION EXPERIENCE=======================#
+    def _push_navigation_transition(self, ev) -> None:
+        """
+        Take what we stored in ev.sarns, build s', and push (s,a,r,s').
+        """
+        s  = ev.sarns.get("state")
+        a  = ev.sarns.get("action")
+        r  = ev.sarns.get("reward")
+        if s is None or a is None:
+            return
+        # next-state is built wrt the EV's chosen nextGrid if accepted,
+        # otherwise its current grid (stay)
+        if ev.state == EvState.IDLE:
+            next_g = ev.gridIndex
 
+        s2 = self.build_state_nav1(ev)
+        done = 0.0  # not terminal at this stage
+
+        # push to replay (tensorise once; buffer will normalise if needed)
+        import torch
+        s_t  = torch.tensor(s,  dtype=torch.float32)
+        a_t  = torch.tensor(a,  dtype=torch.int64)
+        r_t  = torch.tensor(r,  dtype=torch.float32)
+        s2_t = torch.tensor(s2, dtype=torch.float32)
+        d_t  = torch.tensor(done, dtype=torch.float32)
+        #print(f"[RepositionReplay] push EV={ev.id} r={float(r):.3f} a={a}")
+        self.buffer_navigation.push(s_t, a_t, r_t, s2_t, d_t)
+
+
+    #===================== TRAIN NAVIGATION==================#
+    def _train_navigation(self, batch_size: int = 64, gamma: float = 0.99):
+        # need enough samples
+        if len(self.buffer_navigation) < batch_size:
+            return
+        
+
+        # sample a batch (ReplayBuffer.sample should accept device=... and return tensors)
+        try:
+            s, a, r, s2, done = self.buffer_navigation.sample(batch_size, device=self.device)
+        except TypeError:
+            # fallback if your sample() returns python lists/np arrays
+            batch = self.buffer_navigation.sample(batch_size)
+            s   = torch.stack([torch.as_tensor(x, dtype=torch.float32, device=self.device) for x in batch[0]])
+            a   = torch.as_tensor(batch[1], dtype=torch.long,   device=self.device)
+            r   = torch.as_tensor(batch[2], dtype=torch.float32, device=self.device)
+            s2  = torch.stack([torch.as_tensor(x, dtype=torch.float32, device=self.device) for x in batch[3]])
+            done= torch.as_tensor(batch[4], dtype=torch.float32, device=self.device)
+
+        # target: r + γ (1-done) max_a' Q_target(s')
+        with torch.no_grad():
+            q2 = self.dqn_navigation_target(s2).max(dim=1).values
+            y  = r + gamma * (1.0 - done) * q2
+
+        # current Q(s,a)
+        q = self.dqn_navigation_main(s).gather(1, a.view(-1, 1)).squeeze(1)
+
+        loss = torch.nn.functional.smooth_l1_loss(q, y)
+        self.opt_navigation.zero_grad()
+        loss.backward()
+        self.opt_navigation.step()
+
+        # soft-update target
+        self.nav_step += 1
+        if self.nav_step % self.nav_target_update == 0:
+            with torch.no_grad():
+                for p_t, p in zip(self.dqn_navigation_target.parameters(),
+                                self.dqn_navigation_main.parameters()):
+                    p_t.data.mul_(1.0 - self.nav_tau).add_(self.nav_tau * p.data)
+
+        if self.nav_step % 500 == 0:
+            print(f"[Controller] NAV train step={self.nav_step} loss={loss.item():.4f}")
+            
     # ---------- episode reset ----------
     def _reset_episode(self) -> None:
         import pandas as pd
@@ -506,12 +577,33 @@ class Controller:
                 self._push_reposition_transition(ev)'''
         #moved this one line here from below
         dispatches = self.env.dispatch_gridwise(beta=0.5)
+
+        for ev in self.env.evs.values():
+            if ev.state == EvState.BUSY and ev.status == "Navigation":
+                state_vec,hid = self.build_state_nav1(ev) #this is the same as idle
+                #replace this with the below navigation state builder
+                #state_vec = self.build_state_nav(ev)
+                ev.sarns["state"] = state_vec
+                a_gi = self._select_nav_action(state_vec,hid)
+                ev.sarns["action"] = a_gi
+                h=self.env.hospitals.get(a_gi)
+                if h is not None:
+                    eta = h.estimate_eta_minutes(ev.location[0], ev.location[1])
+                    if h.waitTime is not None:
+                        w_busy = eta + h.waitTime
+                ev.sarns["reward"] = utility_navigation(w_busy)
+    
+        self.env.update_after_timeslot(8)
+          
         for ev in self.env.evs.values():
             if ev.state == EvState.IDLE or ev.status == "Dispatching":
+                self._push_reposition_transition(ev)
+            elif ev.state == EvState.BUSY :
                 self._push_reposition_transition(ev)
         
         # after the loop that calls _push_reposition_transition(ev)
         self._train_reposition(batch_size=64, gamma=0.99)
+        self._train_navigation(batch_size=64, gamma=0.99)
 
                 
         # 4) Gridwise dispatch (Algorithm 2) using EVs that stayed/rejected
@@ -522,15 +614,6 @@ class Controller:
 
 
         # 5) build states and actions for IDLE EVs only
-        for ev in self.env.evs.values():
-            if ev.state == EvState.BUSY and ev.status == "Navigation":
-                state_vec = self.build_state_nav(ev) #this is the same as idle
-                #replace this with the below navigation state builder
-                #state_vec = self.build_state_nav(ev)
-                ev.sarns["state"] = state_vec
-                a_gi = self._select_nav_action(state_vec)
-                ev.sarns["action"] = a_gi
-                #ev.destgrid = a_gi
 
 
         '''
@@ -546,7 +629,7 @@ class Controller:
             f"accepted={accepted:2d} | dispatched={len(dispatches):2d}"
         )'''
 
-        self.env.update_after_timeslot(8)
+
         
         '''for g in self.env.grids.values():
             vehicle_id = []
@@ -754,44 +837,5 @@ class Controller:
         return utility_navigation_un(W_busy, H_MIN, H_MAX)'''
     
 
-    def _train_navigation(self, batch_size: int = 64, gamma: float = 0.99):
-        # need enough samples
-        if len(self.buffer_navigation) < batch_size:
-            return
-
-        # sample a batch (ReplayBuffer.sample should accept device=... and return tensors)
-        try:
-            s, a, r, s2, done = self.buffer_navigation.sample(batch_size, device=self.device)
-        except TypeError:
-            # fallback if your sample() returns python lists/np arrays
-            batch = self.buffer_navigation.sample(batch_size)
-            s   = torch.stack([torch.as_tensor(x, dtype=torch.float32, device=self.device) for x in batch[0]])
-            a   = torch.as_tensor(batch[1], dtype=torch.long,   device=self.device)
-            r   = torch.as_tensor(batch[2], dtype=torch.float32, device=self.device)
-            s2  = torch.stack([torch.as_tensor(x, dtype=torch.float32, device=self.device) for x in batch[3]])
-            done= torch.as_tensor(batch[4], dtype=torch.float32, device=self.device)
-
-        # target: r + γ (1-done) max_a' Q_target(s')
-        with torch.no_grad():
-            q2 = self.dqn_navigation_target(s2).max(dim=1).values
-            y  = r + gamma * (1.0 - done) * q2
-
-        # current Q(s,a)
-        q = self.dqn_navigation_main(s).gather(1, a.view(-1, 1)).squeeze(1)
-
-        loss = torch.nn.functional.smooth_l1_loss(q, y)
-        self.opt_navigation.zero_grad()
-        loss.backward()
-        self.opt_navigation.step()
-
-        # soft-update target
-        self.nav_step += 1
-        if self.nav_step % self.nav_target_update == 0:
-            with torch.no_grad():
-                for p_t, p in zip(self.dqn_navigation_target.parameters(),
-                                self.dqn_navigation_main.parameters()):
-                    p_t.data.mul_(1.0 - self.nav_tau).add_(self.nav_tau * p.data)
-
-        if self.nav_step % 500 == 0:
-            print(f"[Controller] NAV train step={self.nav_step} loss={loss.item():.4f}")
+    
     
