@@ -594,8 +594,8 @@ class Controller:
                     ev.navdstGrid = h.gridIndex
                     if h.waitTime is not None:
                         w_busy = eta + h.waitTime
-                ev.navEtaMinutes = w_busy
-                ev.sarns["reward"] = utility_navigation(w_busy)
+                        ev.navEtaMinutes = w_busy
+                        ev.sarns["reward"] = utility_navigation(w_busy)
     
         self.env.update_after_tick(8)
           
