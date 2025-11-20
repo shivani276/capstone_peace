@@ -371,13 +371,11 @@ class MAP:
                 ev.add_idle(dt_minutes)
 
             # 2) EV has been dispatched but no reward yet: move it to patient's grid
-            elif ev.status == "Dispatching" and ev.sarns.get("reward") is None:
-                patient_id = ev.assignedPatientId
+            elif ev.status == "Dispatching" and ev.assignedPatientId is not None:
                 ev.state = EvState.BUSY
-                if patient_id is not None:
-                    inc = self.incidents.get(patient_id)
-                    if inc is not None:
-                        self.move_ev_to_grid(ev.id, inc.gridIndex)
+                inc = self.incidents.get(ev.assignedPatientId)
+                if inc is not None:
+                    self.move_ev_to_grid(ev.id, inc.gridIndex)
 
 
             # 3) Accepted reposition: execute energy/time cost + move
@@ -425,17 +423,17 @@ class MAP:
         for g in self.grids.values():
             g.imbalance = g.calculate_imbalance(self.evs, self.incidents)
 
-    #def update_Navigation(self, dt_minutes: float = 8.0) -> None:
+    '''def update_Navigation(self, dt_minutes: float = 8.0) -> None:
         for ev in self.evs.values():
             if ev.state == EvState.BUSY:
                 #ev.add_busy(8)
-                '''hc_id = ev.navTargetHospitalId
+                hc_id = ev.navTargetHospitalId
                 if hc_id is not None:
                     hospital = self.hospitals.get(hc_id)
                     if hospital is not None and getattr(hospital, "gridIndex", None) is not None:
                         ev.nextGrid = self.next_grid_towards(ev.gridIndex, hospital.gridIndex)
-                        '''
-
+                        
+        '''
     #def update_after_timeslot(self, dt_minutes: float = 8.0) -> None:
 
 
