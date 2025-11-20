@@ -367,6 +367,19 @@ class MAP:
         # EV updates
         for ev in self.evs.values():
             if ev.nextGrid is not None:
+                if ev.state == EvState.BUSY and ev.gridIndex == ev.navdstGrid and ev.assignedPatientId is not None:
+                    inc = self.incidents.get(ev.assignedPatientId)
+                    if inc is not None:
+                        inc.mark_resolved()
+                        g = self.grids.get(inc.gridIndex)
+                        if g is not None:
+                            g.remove_incident(inc.id)
+                        ev.release_incident()
+                    
+
+
+                        
+
                 self.move_ev_to_grid(ev.id,ev.nextGrid)
 
             # 1) EV staying idle in its chosen grid
@@ -388,7 +401,7 @@ class MAP:
 
             elif ev.state == EvState.BUSY:
                 ev.add_busy(8)
-                
+
                 '''
                 hc_id = ev.navTargetHospitalId
                 if hc_id is not None:
