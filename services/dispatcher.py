@@ -96,6 +96,7 @@ class DispatcherService:
 
                     # Record dispatch reward (utility)
                     best_ev.assign_incident(inc_id)
+                    best_ev.sarns["reward"] = best_Ud
                 
                     # Remove from available lists per Algorithm 2
                     I.remove(best_eid)
