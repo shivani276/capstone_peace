@@ -412,14 +412,14 @@ class Controller:
         s  = ev.sarns.get("state")
         a  = ev.sarns.get("action")
         r  = ev.sarns.get("reward")
-        if s is None or a is None:
+        if s is None or a is None or r is None:
             return
         # next-state is built wrt the EV's chosen nextGrid if accepted,
         # otherwise its current grid (stay)
         if ev.state == EvState.IDLE:
             next_g = ev.gridIndex
 
-        s2 = self.build_state_nav1(ev)
+        s2,_ = self.build_state_nav1(ev)
         done = 0.0  # not terminal at this stage
 
         # push to replay (tensorise once; buffer will normalise if needed)
@@ -553,6 +553,7 @@ class Controller:
 
         # 1) spawn incidents for this tick
         self._spawn_incidents_for_tick(t)
+        self.env.tick_hospital_waits()
         
         for g in self.env.grids.values():
             g.imbalance = g.calculate_imbalance(self.env.evs, self.env.incidents)
@@ -592,6 +593,7 @@ class Controller:
                     eta = h.estimate_eta_minutes(ev.location[0], ev.location[1])
                     ev.nextGrid = self.env.next_grid_towards(ev.gridIndex, h.gridIndex)
                     ev.navdstGrid = h.gridIndex
+                    ev.status = "Navigation"
                     if h.waitTime is not None:
                         w_busy = eta + h.waitTime
                         ev.navEtaMinutes = w_busy
@@ -602,7 +604,7 @@ class Controller:
         for ev in self.env.evs.values():
             if ev.state == EvState.IDLE or ev.status == "Dispatching":
                 self._push_reposition_transition(ev)
-            elif ev.state == EvState.BUSY :
+            elif ev.state == EvState.BUSY and ev.status == "Navigation" :
                 self._push_navigation_transition(ev)
         
         # after the loop that calls _push_reposition_transition(ev)
