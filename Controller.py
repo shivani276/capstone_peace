@@ -367,7 +367,7 @@ class Controller:
         r_t  = torch.tensor(r,  dtype=torch.float32)
         s2_t = torch.tensor(s2, dtype=torch.float32)
         d_t  = torch.tensor(done, dtype=torch.float32)
-        #print(f"[RepositionReplay] push EV={ev.id} r={float(r):.3f} a={a}")
+        print(f"[RepositionReplay] push EV={ev.id} r={float(r):.3f} a={a}")
         self.buffer_reposition.push(s_t, a_t, r_t, s2_t, d_t)
 
     #==================Train Reposition==========================#
@@ -429,7 +429,7 @@ class Controller:
         r_t  = torch.tensor(r,  dtype=torch.float32)
         s2_t = torch.tensor(s2, dtype=torch.float32)
         d_t  = torch.tensor(done, dtype=torch.float32)
-        #print(f"[RepositionReplay] push EV={ev.id} r={float(r):.3f} a={a}")
+        print(f"[NavigationREplay] push EV={ev.id} r={float(r):.3f} a={a}")
         self.buffer_navigation.push(s_t, a_t, r_t, s2_t, d_t)
 
 
