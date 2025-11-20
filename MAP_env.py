@@ -208,6 +208,7 @@ class MAP:
                 ids = [self.hospitals[h].id for h in g.hospitals]
                 print(f"  Grid {gi}: {ids}")
 
+
     def tick_hospital_waits(self, low_min: float = 5.0, high_min: float = 45.0, seed: int | None = None) -> None:
         """Reset hospital wait times to random values in range."""
         rng = random.Random(seed)
@@ -228,6 +229,7 @@ class MAP:
         for hc in self.hospitals.values():
             eps = rng.uniform(-lam, lam)
             hc.waitTime = max(wmin, min(wmax, hc.waitTime * math.exp(eps)))'''
+
 
 
     def next_grid_towards(self, from_idx: int, to_idx: int) -> int:
