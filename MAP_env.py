@@ -363,7 +363,7 @@ class MAP:
         inc = self.incidents[inc_id]
         return self.navigator.get_candidate_hospitals(inc, self.hospitals, max_k=max_k)'''
 
-    def update_after_timeslot(self, dt_minutes: float = 8.0) -> None:
+    def update_Repositioning(self, dt_minutes: float = 8.0) -> None:
         # EV updates
         for ev in self.evs.values():
             # 1) EV staying idle in its chosen grid
@@ -424,6 +424,9 @@ class MAP:
         # Recompute grid imbalances
         for g in self.grids.values():
             g.imbalance = g.calculate_imbalance(self.evs, self.incidents)
+
+    def update_Navigation(self, dt_minutes: float = 8.0) -> None:
+        
 
 
 
