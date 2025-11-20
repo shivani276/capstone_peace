@@ -54,7 +54,7 @@ class Grid:
 
             if (
                 ev.state == EvState.IDLE
-                and ev.status == "available"
+                and ev.status == "Idle"
                 and ev.gridIndex == action_grid
             ):
                 count += 1
