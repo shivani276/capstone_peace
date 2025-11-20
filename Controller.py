@@ -399,7 +399,7 @@ class Controller:
 
         # 5) initialise hospital waits for this episode (random range)
         #    signature: reset_hospital_waits(low_min, high_min, seed)
-        self.env.reset_hospital_waits(low_min=H_MIN, high_min=H_MAX, seed=self.rng.randint(1, 10_000))
+        #self.env.reset_hospital_waits(low_min=H_MIN, high_min=H_MAX, seed=self.rng.randint(1, 10_000))
 
         # 6) log
         total_today = 0 if not self._schedule else sum(len(v) for v in self._schedule.values())
