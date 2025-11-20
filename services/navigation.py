@@ -16,7 +16,7 @@ class NavigationService:
         incident: Incident,
         hospitals: Dict[int, Hospital],
         evs: EV
-    ) -> int:
+    ) -> None:
 
         best_hid, best_w_busy = -1, float("inf")
         patient_lat, patient_lng = incident.location
@@ -30,8 +30,11 @@ class NavigationService:
             
         if best_hid is not None:
             best_hc = hospitals[best_hid]
+            best_hc.currentEvId = evs.id
+            evs.navTargetHospitalId = best_hid
+            evs.nextGrid = best_hc.gridIndex
             
-        return best_hid
+
 
     
     @staticmethod
