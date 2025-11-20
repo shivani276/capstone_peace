@@ -426,8 +426,18 @@ class MAP:
             g.imbalance = g.calculate_imbalance(self.evs, self.incidents)
 
     def update_Navigation(self, dt_minutes: float = 8.0) -> None:
-        
+        for ev in self.evs.values():
+            if ev.state == EvState.BUSY:
+                ev.add_busy(8)
+                '''hc_id = ev.navTargetHospitalId
+                if hc_id is not None:
+                    hospital = self.hospitals.get(hc_id)
+                    if hospital is not None and getattr(hospital, "gridIndex", None) is not None:
+                        ev.nextGrid = self.next_grid_towards(ev.gridIndex, hospital.gridIndex)
+                        '''
 
+    def update_after_timeslot(self, dt_minutes: float = 8.0) -> None:
+        
 
 
                     
