@@ -387,15 +387,9 @@ class MAP:
                 # optional: reset status after move
                 # ev.status = "available"
                 # ev.nextGrid = None
-                '''we need execute navigation also here'''
+
             elif ev.state == EvState.BUSY:
-                ev.add_busy(8) #update travel time
-            # 4) EV transporting patient to hospital: move towards hospital grid
-                #update nextGrid towards hospital
-                #ev_id = ev.id
-                #dst = ev.navdstGrid
-                #ev.gridIndex = ev.nextGrid #update current grid to next grid
-                #ev.nextGrid = next_grid_towards(ev.gridIndex, dst) 
+                ev.add_busy(8)
                 '''
                 hc_id = ev.navTargetHospitalId
                 if hc_id is not None:
