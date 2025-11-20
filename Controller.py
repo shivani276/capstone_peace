@@ -603,7 +603,7 @@ class Controller:
             if ev.state == EvState.IDLE or ev.status == "Dispatching":
                 self._push_reposition_transition(ev)
             elif ev.state == EvState.BUSY :
-                self._push_reposition_transition(ev)
+                self._push_navigation_transition(ev)
         
         # after the loop that calls _push_reposition_transition(ev)
         self._train_reposition(batch_size=64, gamma=0.99)
