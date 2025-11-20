@@ -367,8 +367,8 @@ class MAP:
         # EV updates
         for ev in self.evs.values():
             # 1) EV staying idle in its chosen grid
-            if ev.state == EvState.IDLE and ev.gridIndex == ev.sarns.get("action"):
-                ev.add_idle(dt_minutes)
+            '''if ev.state == EvState.IDLE and ev.gridIndex == ev.sarns.get("action"):
+                ev.add_idle(dt_minutes)'''
 
             # 2) EV has been dispatched but no reward yet: move it to patient's grid
             elif ev.status == "Dispatching" and ev.sarns.get("reward") is None:
@@ -428,7 +428,7 @@ class MAP:
     def update_Navigation(self, dt_minutes: float = 8.0) -> None:
         for ev in self.evs.values():
             if ev.state == EvState.BUSY:
-                ev.add_busy(8)
+                #ev.add_busy(8)
                 '''hc_id = ev.navTargetHospitalId
                 if hc_id is not None:
                     hospital = self.hospitals.get(hc_id)
@@ -437,7 +437,7 @@ class MAP:
                         '''
 
     def update_after_timeslot(self, dt_minutes: float = 8.0) -> None:
-        
+
 
 
                     
