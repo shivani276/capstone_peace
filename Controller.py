@@ -335,6 +335,7 @@ class Controller:
 
         # greedy branch: DQN
         s = torch.tensor(state_vec, dtype=torch.float32, device=self.device).unsqueeze(0)
+        s = s.flatten().unsqueeze(0)
         q = self.dqn_navigation_main(s).detach().cpu().numpy().ravel()  # shape (n_actions,)
 
         slot = int(np.argmax(q))
@@ -419,7 +420,7 @@ class Controller:
         # otherwise its current grid (stay)
         if ev.state == EvState.IDLE:
             next_g = ev.gridIndex
-
+        #but we havent updated yet... 
         s2,_ = self.build_state_nav1(ev)
         done = 0.0  # not terminal at this stage
 
@@ -452,6 +453,7 @@ class Controller:
             r   = torch.as_tensor(batch[2], dtype=torch.float32, device=self.device)
             s2  = torch.stack([torch.as_tensor(x, dtype=torch.float32, device=self.device) for x in batch[3]])
             done= torch.as_tensor(batch[4], dtype=torch.float32, device=self.device)
+            print("shapes in train nav:", s.shape, a.shape, r.shape, s2.shape, done.shape)
 
         # target: r + γ (1-done) max_a' Q_target(s')
         with torch.no_grad():
@@ -600,11 +602,15 @@ class Controller:
                         ev.sarns["reward"] = utility_navigation(w_busy)
     
         self.env.update_after_tick(8)
-          
+        #next state???????????????  
+        
         for ev in self.env.evs.values():
             if ev.state == EvState.IDLE or ev.status == "Dispatching":
+                #s2 = self._build_state(ev)
+                #append this into the push rep trans, remove s2 from there
                 self._push_reposition_transition(ev)
             elif ev.state == EvState.BUSY and ev.status == "Navigation" :
+                #s2 = self.build_state_nav(ev)
                 self._push_navigation_transition(ev)
         
         # after the loop that calls _push_reposition_transition(ev)
