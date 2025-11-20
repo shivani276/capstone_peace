@@ -475,7 +475,7 @@ class Controller:
 
         if self.nav_step % 500 == 0:
             print(f"[Controller] NAV train step={self.nav_step} loss={loss.item():.4f}")
-            
+
     # ---------- episode reset ----------
     def _reset_episode(self) -> None:
         import pandas as pd
@@ -578,6 +578,7 @@ class Controller:
         #moved this one line here from below
         dispatches = self.env.dispatch_gridwise(beta=0.5)
 
+
         for ev in self.env.evs.values():
             if ev.state == EvState.BUSY and ev.status == "Navigation":
                 state_vec,hid = self.build_state_nav1(ev) #this is the same as idle
@@ -593,7 +594,7 @@ class Controller:
                         w_busy = eta + h.waitTime
                 ev.sarns["reward"] = utility_navigation(w_busy)
     
-        self.env.update_after_timeslot(8)
+        self.env.update_after_tick(8)
           
         for ev in self.env.evs.values():
             if ev.state == EvState.IDLE or ev.status == "Dispatching":
