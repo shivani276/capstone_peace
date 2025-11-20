@@ -374,11 +374,10 @@ class MAP:
                         g = self.grids.get(inc.gridIndex)
                         if g is not None:
                             g.remove_incident(inc.id)
+                            del inc
+                       
                         ev.release_incident()
-                    
 
-
-                        
 
                 self.move_ev_to_grid(ev.id,ev.nextGrid)
 
