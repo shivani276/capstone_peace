@@ -26,7 +26,7 @@ from Controller import Controller
 
 env = MAP("Data/grid_config_2d.json")
 env.init_evs()
-
+env.init_hospitals("Data/hospitals_latlong.csv")
 ctrl = Controller(
     env,
     ticks_per_ep=180,
