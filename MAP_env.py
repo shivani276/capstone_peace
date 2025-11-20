@@ -366,6 +366,9 @@ class MAP:
     def update_after_tick(self, dt_minutes: float = 8.0) -> None:
         # EV updates
         for ev in self.evs.values():
+            if ev.nextGrid is not None:
+                self.move_ev_to_grid(ev.id,ev.nextGrid)
+                
             # 1) EV staying idle in its chosen grid
             if ev.state == EvState.IDLE and ev.gridIndex == ev.sarns.get("action"):
                 ev.add_idle(dt_minutes)
@@ -374,8 +377,8 @@ class MAP:
             elif ev.status == "Dispatching" and ev.assignedPatientId is not None:
                 ev.state = EvState.BUSY
                 inc = self.incidents.get(ev.assignedPatientId)
-                if inc is not None:
-                    self.move_ev_to_grid(ev.id, inc.gridIndex)
+                '''if inc is not None:
+                    self.move_ev_to_grid(ev.id, inc.gridIndex)'''
 
 
             # 3) Accepted reposition: execute energy/time cost + move
