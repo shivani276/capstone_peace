@@ -63,8 +63,9 @@ class Controller:
         self.opt_reposition = torch.optim.Adam(self.dqn_reposition_main.parameters(), lr=1e-3)
         self.buffer_reposition = ReplayBuffer(100_000)
 
-        state_dim_nav = 2 * NAV_K
-        action_dim_nav = NAV_K
+        
+        action_dim_nav = len(self.env.hospitals)
+        state_dim_nav = 2 * action_dim_nav
         self.nav_step = 0
         self.nav_target_update = 500  # soft update every N training steps
         self.nav_tau = 0.005          # Polyak factor
@@ -221,6 +222,40 @@ class Controller:
             #as many hospitals those many get appended to state vector
         return vec_n
 
+    def build_state_nav(self, ev):
+        """
+        Navigation state over ALL hospitals.
+        Returns:
+            vec_n: [wg_h1_norm, wg_h2_norm, ... wg_hH_norm]
+            hids: list of hospital IDs in fixed order
+        """
+        gi = ev.gridIndex
+        hids = sorted(self.env.hospitals.keys())  # FIXED ORDER
+
+        wgs = []
+
+        for hid in hids:
+            h = self.env.hospitals[hid]
+
+            # ETA
+            if h.gridIndex == gi:
+                eta = 0.0
+            else:
+                eta = h.estimate_eta_minutes(ev.location[0], ev.location[1])
+
+            # wait time
+            wait = float(getattr(h, "waitTime", 0.0))
+
+            # simple utility weight
+            wg = eta + wait
+            wgs.append(wg)
+
+        # NORMALIZE
+        #max_wg = max(wgs) if wgs else 1.0
+        #vec_n = [wg / max_wg for wg in wgs]
+
+        return wgs, hids
+
 
 
       
@@ -279,19 +314,31 @@ class Controller:
             return nb_idx if nb_idx != -1 else gi
         
 
-    def _select_nav_action(self, s_vec: list[float], mask: list[int]) -> int:
 
-        import numpy as np
+
+    def _select_nav_action(self, state_vec: list[float], hids: list[int]) -> int:
+        """
+        Epsilon greedy over all hospitals.
+
+        Returns:
+            hospital id (not slot)
+        """
+        n_actions = len(hids)
+        if n_actions == 0:
+            return -1
+
+        # epsilon branch: random hospital
         if self.rng.random() < self.epsilon:
-            valid = [i for i, m in enumerate(mask) if m == 1]
-            return self.rng.choice(valid) if valid else 0
+            slot = self.rng.randint(0, n_actions)
+            return hids[slot]
 
-        s = torch.tensor(s_vec, dtype=torch.float32, device=self.device).unsqueeze(0)
-        q = self.dqn_navigation_main(s).detach().cpu().numpy().ravel()
-        for i, m in enumerate(mask):
-            if m == 0:
-                q[i] = -1e9
-        return int(np.argmax(q))
+        # greedy branch: DQN
+        s = torch.tensor(state_vec, dtype=torch.float32, device=self.device).unsqueeze(0)
+        q = self.dqn_navigation_main(s).detach().cpu().numpy().ravel()  # shape (n_actions,)
+
+        slot = int(np.argmax(q))
+        return hids[slot]
+
 
 
     
@@ -477,11 +524,11 @@ class Controller:
         # 5) build states and actions for IDLE EVs only
         for ev in self.env.evs.values():
             if ev.state == EvState.BUSY and ev.status == "Navigation":
-                state_vec = self._build_state(ev) #this is the same as idle
+                state_vec = self.build_state_nav(ev) #this is the same as idle
                 #replace this with the below navigation state builder
                 #state_vec = self.build_state_nav(ev)
                 ev.sarns["state"] = state_vec
-                a_gi = self._select_action(state_vec, ev.gridIndex)
+                a_gi = self._select_nav_action(state_vec)
                 ev.sarns["action"] = a_gi
                 #ev.destgrid = a_gi
 

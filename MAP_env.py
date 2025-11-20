@@ -326,7 +326,7 @@ class MAP:
             beta=beta,
         )
 
-    def choose_hospital_for_ev(self, ev_id: int, inc_id: int) -> None:
+    '''def choose_hospital_for_ev(self, ev_id: int, inc_id: int) -> None:
         """
         Select the best (nearest) hospital for a patient incident.
         
@@ -341,9 +341,9 @@ class MAP:
         """
         inc = self.incidents[inc_id]
         evs = self.evs[ev_id]
-        return self.navigator.select_hospital_for_incident(inc, self.hospitals,evs)
+        return self.navigator.select_hospital_for_incident(inc, self.hospitals,evs)'''
 
-    def get_nav_candidates(self, inc_id: int, max_k: int = 8) -> Tuple[List[int], List[float], List[float]]:
+    '''def get_nav_candidates(self, inc_id: int, max_k: int = 8) -> Tuple[List[int], List[float], List[float]]:
         """
         Get top K candidate hospitals for an incident (sorted by proximity).
         
@@ -359,7 +359,7 @@ class MAP:
             Tuple of (hospital_ids, etas_minutes, wait_times)
         """
         inc = self.incidents[inc_id]
-        return self.navigator.get_candidate_hospitals(inc, self.hospitals, max_k=max_k)
+        return self.navigator.get_candidate_hospitals(inc, self.hospitals, max_k=max_k)'''
 
     def update_after_timeslot(self, dt_minutes: float = 8.0) -> None:
         # EV updates
