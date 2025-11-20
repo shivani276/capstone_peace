@@ -25,6 +25,7 @@ class EV:
     aggIdleEnergy: float = 0.0
     aggBusyTime: float = 0.0
     navTargetHospitalId: int | None = None  # hospital currently chosen for navigation
+    navdstGrid: int | None = None        # grid index of that hospital
     navEtaMinutes: float = 0.0              # latest ETA to that hospital
     navUtility: float = 0.0                 
 

@@ -216,6 +216,8 @@ class MAP:
             return
         for hc in self.hospitals.values():
             hc.waitTime = rng.uniform(low_min, high_min)
+            #lam = low_min + high_min / 2.0 # mean
+            #hc.waitTime = rng.poisson(lam) #poisson dist with mean
         print(f"[MAP] Hospital waits initialised in [{low_min}, {high_min}] minutes.")
 
     def tick_hospital_waits(self, lam: float = 0.04, wmin: float = 5.0, wmax: float = 90.0, seed: int | None = None) -> None:
@@ -385,9 +387,15 @@ class MAP:
                 # optional: reset status after move
                 # ev.status = "available"
                 # ev.nextGrid = None
-
+                '''we need execute navigation also here'''
             elif ev.state == EvState.BUSY:
-                ev.add_busy(8)
+                ev.add_busy(8) #update travel time
+            # 4) EV transporting patient to hospital: move towards hospital grid
+                #update nextGrid towards hospital
+                #ev_id = ev.id
+                #dst = ev.navdstGrid
+                #ev.gridIndex = ev.nextGrid #update current grid to next grid
+                #ev.nextGrid = next_grid_towards(ev.gridIndex, dst) 
                 '''
                 hc_id = ev.navTargetHospitalId
                 if hc_id is not None:
