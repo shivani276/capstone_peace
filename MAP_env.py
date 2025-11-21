@@ -216,10 +216,10 @@ class MAP:
             print("[MAP] No hospitals to reset waits for.")
             return
         for hc in self.hospitals.values():
-            hc.waitTime = math.exp(low_min + high_min/2)
-            #lam = low_min + high_min / 2.0 # mean
-            #hc.waitTime = rng.poisson(lam) #poisson dist with mean
-        print(f"[MAP] Hospital waits initialised in [{low_min}, {high_min}] minutes.")
+            #hc.waitTime = math.exp(low_min + high_min/2)
+            lam = low_min + high_min / 2.0 # mean
+            hc.waitTime = rng.poisson(lam) #poisson dist with mean
+            print(f"[MAP] Hospital waits initialised in [{hc.id}, {hc.waitTime}] minutes.")
 
     '''def tick_hospital_waits(self, lam: float = 0.04, wmin: float = 5.0, wmax: float = 90.0, seed: int | None = None) -> None:
         """Update hospital wait times with random exponential drift."""
