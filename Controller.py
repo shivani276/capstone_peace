@@ -331,7 +331,8 @@ class Controller:
         # epsilon branch: random hospital
         if self.rng.random() < self.epsilon:
             slot = self.rng.randint(0, n_actions)
-            return hids[slot]
+            slot = int(slot)
+            return slot
 
         # greedy branch: DQN
         s = torch.tensor(state_vec, dtype=torch.float32, device=self.device).unsqueeze(0)
@@ -608,11 +609,38 @@ class Controller:
             if ev.state == EvState.IDLE or ev.status == "Dispatching":
                 #s2 = self._build_state(ev)
                 #append this into the push rep trans, remove s2 from there
-                self._push_reposition_transition(ev)
+                #self._push_reposition_transition(ev)
+                s_t  = ev.sarns.get("state")
+                a_t  = ev.sarns.get("action")
+                r_t  = ev.sarns.get("reward")
+                st_2_r = self._build_state(ev)
+                if len(self.buffer_reposition) < 1000:
+                    return
+                batch = self.buffer_reposition.sample(64, self.device)
+                s_t   = torch.stack([torch.as_tensor(x, dtype=torch.float32, device=self.device) for x in batch[0]])
+                a_t   = torch.as_tensor(batch[1], dtype=torch.long,   device=self.device)
+                r_t   = torch.as_tensor(batch[2], dtype=torch.float32, device=self.device)
+                st_2_r  = torch.stack([torch.as_tensor(x, dtype=torch.float32, device=self.device) for x in batch[3]])
+                done_t = torch.as_tensor(batch[4], dtype=torch.float32, device=self.device)
+                self.buffer_reposition.push(torch.tensor(s_t), a_t, r_t, torch.tensor(st_2_r), done_t)
             elif ev.state == EvState.BUSY and ev.status == "Navigation" :
                 #s2 = self.build_state_nav(ev)
-                self._push_navigation_transition(ev)
-        
+                #self._push_navigation_transition(ev)
+                s_t  = ev.sarns.get("state")
+                a_t  = ev.sarns.get("action")
+                r_t  = ev.sarns.get("reward")
+                st_2_n = self.build_state_nav1(ev)
+                if len(self.buffer_navigation) < 1000:
+                    return
+                
+
+                batch = self.buffer_navigation.sample(64, self.device)
+                s_t   = torch.stack([torch.as_tensor(x, dtype=torch.float32, device=self.device) for x in batch[0]])
+                a_t   = torch.as_tensor(batch[1], dtype=torch.long,   device=self.device)
+                r_t   = torch.as_tensor(batch[2], dtype=torch.float32, device=self.device)
+                st_2_n  = torch.stack([torch.as_tensor(x, dtype=torch.float32, device=self.device) for x in batch[3]])
+                done_t= torch.as_tensor(batch[4], dtype=torch.float32, device=self.device)
+                self.buffer_navigation.push(torch.tensor(s_t), a_t, r_t, torch.tensor(st_2_n), done_t)
         # after the loop that calls _push_reposition_transition(ev)
         self._train_reposition(batch_size=64, gamma=0.99)
         self._train_navigation(batch_size=64, gamma=0.99)
