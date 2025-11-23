@@ -15,7 +15,7 @@ import random
 from typing import Tuple, Dict, List, Optional
 from datetime import datetime
 import math
-
+import numpy as np
 from utils.Helpers import (
     point_to_grid_index,
     load_grid_config_2d, P_MAX,
@@ -217,9 +217,10 @@ class MAP:
             return
         for hc in self.hospitals.values():
             #hc.waitTime = math.exp(low_min + high_min/2)
+            rng = np.random.default_rng()
             lam = low_min + high_min / 2.0 # mean
             hc.waitTime = rng.poisson(lam) #poisson dist with mean
-            print(f"[MAP] Hospital waits initialised in [{hc.id}, {hc.waitTime}] minutes.")
+            #print(f"[MAP] Hospital waits initialised in [{hc.id}, {hc.waitTime}] minutes.")
 
     '''def tick_hospital_waits(self, lam: float = 0.04, wmin: float = 5.0, wmax: float = 90.0, seed: int | None = None) -> None:
         """Update hospital wait times with random exponential drift."""
@@ -388,8 +389,10 @@ class MAP:
             # 2) EV has been dispatched but no reward yet: move it to patient's grid
             elif ev.status == "Dispatching" and ev.assignedPatientId is not None:
                 ev.state = EvState.BUSY
+                #dispatched += 1
+                #print("changed the status after dispatch for the EV", ev.id)
                 #inc = self.incidents.get(ev.assignedPatientId)
-
+        
             # 3) Accepted reposition: execute energy/time cost + move
             elif ev.status == "Repositioning" and ev.sarns.get("reward") is not None:
                 ev.execute_reposition()
@@ -433,7 +436,7 @@ class MAP:
         # Recompute grid imbalances
         for g in self.grids.values():
             g.imbalance = g.calculate_imbalance(self.evs, self.incidents)
-
+        
     '''def update_Navigation(self, dt_minutes: float = 8.0) -> None:
         for ev in self.evs.values():
             if ev.state == EvState.BUSY:
