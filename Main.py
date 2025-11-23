@@ -37,6 +37,8 @@ n_episodes = 500
 all_stats = []
 
 for ep in range(1, n_episodes + 1):
+    #dispatched = 0
     stats = ctrl.run_training_episode(ep)
     all_stats.append(stats)
+    
 

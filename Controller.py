@@ -66,7 +66,9 @@ class Controller:
 
         
         action_dim_nav = len(self.env.hospitals)
-        state_dim_nav = 2 * action_dim_nav
+        #state_dim_nav = 2 * action_dim_nav
+        #action_dim_nav = 78
+        state_dim_nav = 78
         self.nav_step = 0
         self.nav_target_update = 500  # soft update every N training steps
         self.nav_tau = 0.005          # Polyak factor
@@ -255,7 +257,7 @@ class Controller:
         #max_wg = max(wgs) if wgs else 1.0
         #vec_n = [wg / max_wg for wg in wgs]
 
-        return wgs, hids
+        return wgs
 
 
 
@@ -287,7 +289,7 @@ class Controller:
     def _select_action(self, state_vec: list[float], gi: int) -> int:
 
         neighbours = self._get_direction_neighbors_for_index(gi)  # len 8
-
+        
         # validity mask: stay is always valid; moves valid only if neighbour exists
         valid_mask = [1]  # slot 0 (stay)
         for nb_idx in neighbours:
@@ -317,30 +319,35 @@ class Controller:
 
 
 
-    def _select_nav_action(self, state_vec: list[float], hids: list[int]) -> int:
+    def _select_nav_action(self, state_vec) -> int:
         """
         Epsilon greedy over all hospitals.
 
         Returns:
             hospital id (not slot)
         """
-        n_actions = len(hids)
+        n_actions = len(state_vec)
+        hids = sorted(self.env.hospitals.keys())  # FIXED ORDER
+
         if n_actions == 0:
             return -1
 
         # epsilon branch: random hospital
         if self.rng.random() < self.epsilon:
-            slot = self.rng.randint(0, n_actions)
-            slot = int(slot)
-            return slot
+            #slot = self.rng.randint(0, n_actions)
+            hid = random.choice(hids)
+            hid = max(0, min(hid, n_actions - 1))
+            #slot = int(slot)
+            return hid
 
         # greedy branch: DQN
         s = torch.tensor(state_vec, dtype=torch.float32, device=self.device).unsqueeze(0)
         s = s.flatten().unsqueeze(0)
         q = self.dqn_navigation_main(s).detach().cpu().numpy().ravel()  # shape (n_actions,)
-
-        slot = int(np.argmax(q))
-        return hids[slot]
+        
+        hid = int(np.argmax(q))
+        hid = max(0, min(hid, n_actions - 1))
+        return hid
 
 
 
@@ -399,6 +406,8 @@ class Controller:
 
         self.opt_reposition.zero_grad()
         loss.backward()
+      
+
         self.opt_reposition.step()
 
         # soft-update target net
@@ -446,6 +455,7 @@ class Controller:
         # sample a batch (ReplayBuffer.sample should accept device=... and return tensors)
         try:
             s, a, r, s2, done = self.buffer_navigation.sample(batch_size, device=self.device)
+            #print("sampled from nav buffer to train nav dqn")
         except TypeError:
             # fallback if your sample() returns python lists/np arrays
             batch = self.buffer_navigation.sample(batch_size)
@@ -459,6 +469,7 @@ class Controller:
         # target: r + γ (1-done) max_a' Q_target(s')
         with torch.no_grad():
             q2 = self.dqn_navigation_target(s2).max(dim=1).values
+            
             y  = r + gamma * (1.0 - done) * q2
 
         # current Q(s,a)
@@ -467,7 +478,9 @@ class Controller:
         loss = torch.nn.functional.smooth_l1_loss(q, y)
         self.opt_navigation.zero_grad()
         loss.backward()
+        
         self.opt_navigation.step()
+        
 
         # soft-update target
         self.nav_step += 1
@@ -540,8 +553,8 @@ class Controller:
 
         # 6) log
         total_today = 0 if not self._schedule else sum(len(v) for v in self._schedule.values())
-        print(f"[Controller] _reset_episode ready: day={self._current_day.date()} incidents_today={total_today}")
-
+        #print(f"[Controller] _reset_episode ready: day={self._current_day.date()} incidents_today={total_today}")
+        
     # ---------- per-tick ----------
     def _spawn_incidents_for_tick(self, t: int) -> None:
         todays_at_tick = self._schedule.get(t, []) if self._schedule else []
@@ -585,11 +598,12 @@ class Controller:
 
         for ev in self.env.evs.values():
             if ev.state == EvState.BUSY and ev.status == "Navigation":
-                state_vec,hid = self.build_state_nav1(ev) #this is the same as idle
+                state_vec = self.build_state_nav1(ev) #this is the same as idle
                 #replace this with the below navigation state builder
                 #state_vec = self.build_state_nav(ev)
                 ev.sarns["state"] = state_vec
-                a_gi = self._select_nav_action(state_vec,hid)
+                a_gi = self._select_nav_action(state_vec)
+                #print("navigation actions", a_gi)
                 ev.sarns["action"] = a_gi
                 h=self.env.hospitals.get(a_gi)
                 if h is not None:
@@ -601,6 +615,7 @@ class Controller:
                         w_busy = eta + h.waitTime
                         ev.navEtaMinutes = w_busy
                         ev.sarns["reward"] = utility_navigation(w_busy)
+                        #print("reward for navigation", ev.sarns["reward"])
     
         self.env.update_after_tick(8)
         #next state???????????????  
@@ -610,39 +625,60 @@ class Controller:
                 #s2 = self._build_state(ev)
                 #append this into the push rep trans, remove s2 from there
                 #self._push_reposition_transition(ev)
-                s_t  = ev.sarns.get("state")
-                a_t  = ev.sarns.get("action")
-                r_t  = ev.sarns.get("reward")
+                sr_t  = ev.sarns.get("state")
+                ar_t  = ev.sarns.get("action")
+                rr_t  = ev.sarns.get("reward")
                 st_2_r = self._build_state(ev)
+                doner_t = bool(1)
+                sr_t = torch.as_tensor(sr_t, dtype=torch.float32, device=self.device).view(-1)
+                st_2_r = torch.as_tensor(st_2_r, dtype=torch.float32, device=self.device).view(-1) 
+                #print("shapes", sr_t.shape,  st_2_r.shape)
+                self.buffer_reposition.push(sr_t, ar_t, rr_t, st_2_r, doner_t)
+                print("pushed the exp in rep buffer",rr_t )
+                #print("experience pushed into rep buffer", [torch.tensor(sr_t),ar_t,rr_t,torch.tensor(st_2_r)])
                 if len(self.buffer_reposition) < 1000:
+                    #print("buffer still not warm")
                     return
-                batch = self.buffer_reposition.sample(64, self.device)
-                s_t   = torch.stack([torch.as_tensor(x, dtype=torch.float32, device=self.device) for x in batch[0]])
-                a_t   = torch.as_tensor(batch[1], dtype=torch.long,   device=self.device)
-                r_t   = torch.as_tensor(batch[2], dtype=torch.float32, device=self.device)
-                st_2_r  = torch.stack([torch.as_tensor(x, dtype=torch.float32, device=self.device) for x in batch[3]])
-                done_t = torch.as_tensor(batch[4], dtype=torch.float32, device=self.device)
-                self.buffer_reposition.push(torch.tensor(s_t), a_t, r_t, torch.tensor(st_2_r), done_t)
+                Sr, Ar, Rr, S2r, Dr = self.buffer_reposition.sample(64, self.device)
+                #sr_t   = torch.stack(sr_t, dtype=torch.float32, device=self.device)
+                #ar_t   = torch.as_tensor(batchr[1], dtype=torch.long,   device=self.device)
+                #rr_t   = torch.as_tensor(batchr[2], dtype=torch.float32, device=self.device)
+                #st_2_r  = torch.stack(st_2_r, dtype=torch.float32, device=self.device) 
+                #doner_t = torch.as_tensor(batchr[4], dtype=torch.float32, device=self.device)
+                
             elif ev.state == EvState.BUSY and ev.status == "Navigation" :
                 #s2 = self.build_state_nav(ev)
                 #self._push_navigation_transition(ev)
                 s_t  = ev.sarns.get("state")
                 a_t  = ev.sarns.get("action")
                 r_t  = ev.sarns.get("reward")
-                st_2_n = self.build_state_nav1(ev)
+                wits = self.build_state_nav1(ev)
+                st_2_n = wits
+                done_t = bool(1)
+                s_t = torch.as_tensor(s_t, dtype=torch.float32, device=self.device).view(-1)
+                st_2_n = torch.as_tensor(st_2_n, dtype=torch.float32, device=self.device).view(-1)
+               
+                #print("shape chek for push", s_t.shape, st_2_n.shape)
+                self.buffer_navigation.push(s_t, a_t, r_t, st_2_n, done_t)
+                print("pushed the exp in nav buffer",r_t )
+                #print("experience pushed into nav buffer", [s_t,a_t,r_t,st_2_n])
+                
                 if len(self.buffer_navigation) < 1000:
                     return
                 
 
-                batch = self.buffer_navigation.sample(64, self.device)
-                s_t   = torch.stack([torch.as_tensor(x, dtype=torch.float32, device=self.device) for x in batch[0]])
-                a_t   = torch.as_tensor(batch[1], dtype=torch.long,   device=self.device)
-                r_t   = torch.as_tensor(batch[2], dtype=torch.float32, device=self.device)
-                st_2_n  = torch.stack([torch.as_tensor(x, dtype=torch.float32, device=self.device) for x in batch[3]])
-                done_t= torch.as_tensor(batch[4], dtype=torch.float32, device=self.device)
-                self.buffer_navigation.push(torch.tensor(s_t), a_t, r_t, torch.tensor(st_2_n), done_t)
+                Sn, An, Rn, S2n, Dn = self.buffer_navigation.sample(64, self.device)
+                #print("shape check of sample",Sn.shape, S2n.shape)
+                #s_t   = torch.stack(s_t, dtype=torch.float32, device=self.device)  
+                #a_t   = torch.as_tensor(batch[1], dtype=torch.long,   device=self.device)
+                #r_t   = torch.as_tensor(batch[2], dtype=torch.float32, device=self.device)
+                #st_2_n  = torch.stack(st_2_n, dtype=torch.float32, device=self.device) 
+                #done_t= torch.as_tensor(batch[4], dtype=torch.float32, device=self.device)
+                
+                
         # after the loop that calls _push_reposition_transition(ev)
         self._train_reposition(batch_size=64, gamma=0.99)
+        
         self._train_navigation(batch_size=64, gamma=0.99)
 
                 
@@ -742,7 +778,7 @@ class Controller:
         total_rep_reward = 0.0
         n_rep_moves = 0
         total_dispatched = 0
-
+        ep_loss_nav = 0
         for t in range(self.ticks_per_ep):
             self._tick(t)
 
@@ -752,7 +788,7 @@ class Controller:
                 if r not in (None, 0.0):
                     total_rep_reward += float(r)
                     n_rep_moves += 1
-
+                    
             # you already get dispatches count from dispatch_gridwise,
             # but easiest is: count SERVICING incidents
             n_servicing = sum(
@@ -762,7 +798,7 @@ class Controller:
             total_dispatched = max(total_dispatched, n_servicing)
 
         avg_rep_reward = total_rep_reward / max(1, n_rep_moves)
-
+        
         stats = {
             "episode": episode_idx,
             "avg_rep_reward": avg_rep_reward,
@@ -771,12 +807,12 @@ class Controller:
             "total_incidents": len(self.env.incidents),
         }
 
-        print(
+        '''print(
             f"[EP {episode_idx:03d}] avg_rep_reward={avg_rep_reward:.3f} "
-            f"moves={n_rep_moves:3d} servicing_max={total_dispatched:3d} "
+            f"moves={n_rep_moves:3d} dispatched={total_dispatched:3d} "
             f"incidents={len(self.env.incidents):3d}"
-        )
-
+        )'''
+      
         return stats
 
     
