@@ -98,11 +98,14 @@ class DispatcherService:
                     best_ev.assign_incident(inc_id)
                     best_ev.sarns["reward"] = best_Ud
                     #print("reward after dispatch",best_ev.sarns["reward"] )
+                    #print(f"[DISPATCH] inc {inc.id} assigned to EV {ev.id} at tick {t}")
                 
                     # Remove from available lists per Algorithm 2
                     I.remove(best_eid)
                     K.remove(inc_id)
                     #g.remove_incident(inc_id)
                     assignments.append((best_eid, inc_id, float(best_Ud)))
+                    
+
         
         return assignments
