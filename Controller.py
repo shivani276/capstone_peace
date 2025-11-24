@@ -366,16 +366,14 @@ class Controller:
         s  = ev.sarns.get("state")
         a  = ev.sarns.get("action")
         r  = ev.sarns.get("reward")
-        if s is None or a is None and r is not None:
-            return
+
         # next-state is built wrt the EV's chosen nextGrid if accepted,
-        # otherwise its current grid (stay)
-        if ev.state == EvState.IDLE:
-            next_g = ev.gridIndex
+        # otherwise its current grid (stay
 
         s2 = self._build_state(ev)
         done = 0.0  # not terminal at this stage
-
+        if s is None or a is None or r is None or s2 is None:
+            return
         # push to replay (tensorise once; buffer will normalise if needed)
         import torch
         s_t  = torch.tensor(s,  dtype=torch.float32)
@@ -604,7 +602,7 @@ class Controller:
             ev.sarns.clear()
             ev.sarns["state"] = None
             ev.sarns["action"] = None
-            ev.sarns["reward"] = None
+            ev.sarns["reward"] = 0.0
             ev.sarns["next_state"] = None
 
         # 5) remove used tick-0 calls from the schedule so they don't spawn again
@@ -892,12 +890,12 @@ class Controller:
             f"moves={n_rep_moves:3d} dispatched={total_dispatched:3d} "
             f"incidents={len(self.env.incidents):3d}"
 
-        )'''
+        )
       
         print("=== INCIDENTS STILL ACTIVE AT EPISODE END ===")
         for inc_id, inc in self.env.incidents.items():
             print(
-            f"ID={inc_id} status={inc.status} grid={inc.gridIndex} wait={inc.waitTime}")
+            f"ID={inc_id} status={inc.status} grid={inc.gridIndex} wait={inc.waitTime}")'''
         
 
 
