@@ -35,10 +35,20 @@ ctrl = Controller(
 
 n_episodes = 500
 all_stats = []
-
+all_loss = []
 for ep in range(1, n_episodes + 1):
     #dispatched = 0
     stats = ctrl.run_training_episode(ep)
+    episode_loss = stats["average ep loss"]
+    all_loss.append(episode_loss)
     all_stats.append(stats)
     
+import matplotlib.pyplot as plt
+
+plt.plot(all_loss)
+plt.xlabel("Episode")
+plt.ylabel("Average Navigation Loss")
+plt.title("Navigation Training Loss Curve")
+plt.grid(True)
+plt.show()
 

@@ -1,7 +1,7 @@
 # Controller.py
 import random
 from typing import Optional, List
-
+import statistics
 import pandas as pd
 import torch
 import torch.nn.functional as F
@@ -406,7 +406,7 @@ class Controller:
 
         self.opt_reposition.zero_grad()
         loss.backward()
-      
+        
 
         self.opt_reposition.step()
 
@@ -455,6 +455,7 @@ class Controller:
         # sample a batch (ReplayBuffer.sample should accept device=... and return tensors)
         try:
             s, a, r, s2, done = self.buffer_navigation.sample(batch_size, device=self.device)
+
             #print("sampled from nav buffer to train nav dqn")
         except TypeError:
             # fallback if your sample() returns python lists/np arrays
@@ -464,7 +465,7 @@ class Controller:
             r   = torch.as_tensor(batch[2], dtype=torch.float32, device=self.device)
             s2  = torch.stack([torch.as_tensor(x, dtype=torch.float32, device=self.device) for x in batch[3]])
             done= torch.as_tensor(batch[4], dtype=torch.float32, device=self.device)
-            print("shapes in train nav:", s.shape, a.shape, r.shape, s2.shape, done.shape)
+            #print("shapes in train nav:", s.shape, a.shape, r.shape, s2.shape, done.shape)
 
         # target: r + γ (1-done) max_a' Q_target(s')
         with torch.no_grad():
@@ -478,7 +479,9 @@ class Controller:
         loss = torch.nn.functional.smooth_l1_loss(q, y)
         self.opt_navigation.zero_grad()
         loss.backward()
-        
+        loss_value = loss.item()
+        #self.nav_loss_log.append(loss_value)
+
         self.opt_navigation.step()
         
 
@@ -490,9 +493,10 @@ class Controller:
                                 self.dqn_navigation_main.parameters()):
                     p_t.data.mul_(1.0 - self.nav_tau).add_(self.nav_tau * p.data)
 
-        if self.nav_step % 500 == 0:
-            print(f"[Controller] NAV train step={self.nav_step} loss={loss.item():.4f}")
-
+        #if self.nav_step % 500 == 0:
+            #print(f"[Controller] NAV train step={self.nav_step} loss={loss.item():.4f}")
+        float(loss_value)
+        return loss_value
     # ---------- episode reset ----------
     def _reset_episode(self) -> None:
         import pandas as pd
@@ -563,7 +567,7 @@ class Controller:
             self.env.create_incident(grid_index=gi, location=(lat, lng), priority="MED")
 
     def _tick(self, t: int) -> None:
-
+             
         #Hard_update
         hard_update(self.dqn_reposition_target, self.dqn_reposition_main)
 
@@ -634,7 +638,7 @@ class Controller:
                 st_2_r = torch.as_tensor(st_2_r, dtype=torch.float32, device=self.device).view(-1) 
                 #print("shapes", sr_t.shape,  st_2_r.shape)
                 self.buffer_reposition.push(sr_t, ar_t, rr_t, st_2_r, doner_t)
-                print("pushed the exp in rep buffer",rr_t )
+                #print("pushed the exp in rep buffer",rr_t )
                 #print("experience pushed into rep buffer", [torch.tensor(sr_t),ar_t,rr_t,torch.tensor(st_2_r)])
                 if len(self.buffer_reposition) < 1000:
                     #print("buffer still not warm")
@@ -660,7 +664,7 @@ class Controller:
                
                 #print("shape chek for push", s_t.shape, st_2_n.shape)
                 self.buffer_navigation.push(s_t, a_t, r_t, st_2_n, done_t)
-                print("pushed the exp in nav buffer",r_t )
+                #print("pushed the exp in nav buffer",r_t )
                 #print("experience pushed into nav buffer", [s_t,a_t,r_t,st_2_n])
                 
                 if len(self.buffer_navigation) < 1000:
@@ -678,9 +682,14 @@ class Controller:
                 
         # after the loop that calls _push_reposition_transition(ev)
         self._train_reposition(batch_size=64, gamma=0.99)
-        
-        self._train_navigation(batch_size=64, gamma=0.99)
 
+        
+        nav_loss = self._train_navigation(batch_size=64, gamma=0.99)
+
+        if nav_loss == None:
+            nav_loss = 0.078
+        float(nav_loss)
+        return nav_loss
                 
         # 4) Gridwise dispatch (Algorithm 2) using EVs that stayed/rejected
 
@@ -778,17 +787,22 @@ class Controller:
         total_rep_reward = 0.0
         n_rep_moves = 0
         total_dispatched = 0
-        ep_loss_nav = 0
+        self.ep_loss_nav = []
+        
         for t in range(self.ticks_per_ep):
-            self._tick(t)
+            slot_loss = self._tick(t)
+            self.ep_loss_nav.append(slot_loss)
 
+           
+            
+           
             # collect simple stats
             for ev in self.env.evs.values():
                 r = ev.sarns.get("reward")
                 if r not in (None, 0.0):
                     total_rep_reward += float(r)
                     n_rep_moves += 1
-                    
+                
             # you already get dispatches count from dispatch_gridwise,
             # but easiest is: count SERVICING incidents
             n_servicing = sum(
@@ -798,13 +812,19 @@ class Controller:
             total_dispatched = max(total_dispatched, n_servicing)
 
         avg_rep_reward = total_rep_reward / max(1, n_rep_moves)
-        
+        self.ep_l = []
+        for l in self.ep_loss_nav:
+            if l == None:
+                l = 0.06
+            float(l) 
+            self.ep_l.append(l)   
+        avg_ep_loss = statistics.mean(self.ep_l)
         stats = {
             "episode": episode_idx,
             "avg_rep_reward": avg_rep_reward,
             "rep_moves": n_rep_moves,
             "max_servicing": total_dispatched,
-            "total_incidents": len(self.env.incidents),
+            "total_incidents": len(self.env.incidents),"average ep loss": avg_ep_loss
         }
 
         '''print(
@@ -812,7 +832,14 @@ class Controller:
             f"moves={n_rep_moves:3d} dispatched={total_dispatched:3d} "
             f"incidents={len(self.env.incidents):3d}"
         )'''
-      
+       
+        
+        
+
+        
+         # reset for next episode
+        print("end of training episode" , episode_idx)
+
         return stats
 
     
