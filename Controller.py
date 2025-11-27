@@ -9,12 +9,13 @@ import numpy as np
 
 from MAP_env import MAP
 from Entities.ev import EvState
+from Entities.Incident import Priority
 from utils.Epsilon import EpsilonScheduler, hard_update, soft_update
 from utils.Helpers import (
     build_daily_incident_schedule,
     point_to_grid_index,
     W_MIN, W_MAX, E_MIN, E_MAX,H_MIN, H_MAX,
-    utility_navigation,
+    utility_navigation, load_calls
 )
 
 from DQN import DQNetwork, ReplayBuffer
@@ -30,6 +31,7 @@ class Controller:
         ticks_per_ep: int = 180,
         seed: int = 123,
         csv_path: str = "Data/5Years_SF_calls_latlong.csv",
+        
         time_col: str = "Received DtTm",
         lat_col: Optional[str] = "Latitude",
         lng_col: Optional[str] = "Longitude",
@@ -102,6 +104,10 @@ class Controller:
         self.max_idle_minutes = W_MAX
         self.max_idle_energy = E_MAX
         self.max_wait_time_HC = H_MAX
+
+        #CHECK-CALLS
+        self._spawn_attempts = 0
+        self._spawn_success = 0
 
     
     def _get_direction_neighbors_for_index(self, index: int) -> list[int]:
@@ -360,16 +366,14 @@ class Controller:
         s  = ev.sarns.get("state")
         a  = ev.sarns.get("action")
         r  = ev.sarns.get("reward")
-        if s is None or a is None and r is not None:
-            return
+
         # next-state is built wrt the EV's chosen nextGrid if accepted,
-        # otherwise its current grid (stay)
-        if ev.state == EvState.IDLE:
-            next_g = ev.gridIndex
+        # otherwise its current grid (stay
 
         s2 = self._build_state(ev)
         done = 0.0  # not terminal at this stage
-
+        if s is None or a is None or r is None or s2 is None:
+            return
         # push to replay (tensorise once; buffer will normalise if needed)
         import torch
         s_t  = torch.tensor(s,  dtype=torch.float32)
@@ -459,7 +463,7 @@ class Controller:
             #print("sampled from nav buffer to train nav dqn")
         except TypeError:
             # fallback if your sample() returns python lists/np arrays
-            batch = self.buffer_navigation.sample(batch_size)
+            batch = self.buffer_navigation.sample(batch_size, device=self.device)
             s   = torch.stack([torch.as_tensor(x, dtype=torch.float32, device=self.device) for x in batch[0]])
             a   = torch.as_tensor(batch[1], dtype=torch.long,   device=self.device)
             r   = torch.as_tensor(batch[2], dtype=torch.float32, device=self.device)
@@ -499,28 +503,96 @@ class Controller:
         return loss_value
     # ---------- episode reset ----------
     def _reset_episode(self) -> None:
-        import pandas as pd
+        #Check calls
+        self._spawn_attempts = 0
+        self._spawn_success = 0
 
         # 1) clear incidents from env + grids
         self.env.incidents.clear()
         for g in self.env.grids.values():
             g.incidents.clear()
 
-        # 2) randomise EV placement and base fields (no offers yet)
+        # 2) pick a random day from the calls dataframe
+        series = pd.to_datetime(self.df[self.time_col], errors="coerce").dt.normalize().dropna()
+        days = series.unique()
+        if len(days) == 0:
+            raise RuntimeError(f"No valid dates in dataset for {self.time_col}")
+
+        self._current_day = pd.Timestamp(self.rng.choice(list(days)))
+
+        # 3) build daily incident schedule ONCE for this day
+        self._schedule = build_daily_incident_schedule(
+            self.df,
+            day=self._current_day,
+            time_col=self.time_col,
+            lat_col=self.lat_col,
+            lng_col=self.lng_col,
+            wkt_col=self.wkt_col,
+        )
+
+        total_today = 0 if not self._schedule else sum(len(v) for v in self._schedule.values())
+        self.total_today = total_today
+        print(f"[Controller] _reset_episode ready: day={self._current_day.date()} incidents_today={total_today}")
+        in_window = sum(len(self._schedule.get(t, [])) for t in range(self.ticks_per_ep))
+        after_window = total_today - in_window
+        print(f"[Controller] schedule breakdown: in_window={in_window}, after_window={after_window}")
+
+        # 4) pre-use some tick-0 incidents to seed BUSY EVs
+        #t0_calls = list(self._schedule.get(0, []))  # list of (lat, lng)
+        ev_list = list(self.env.evs.values())
+        self.rng.shuffle(ev_list)
+
         all_idx = list(self.env.grids.keys())
-        for ev in self.env.evs.values():
+
+        # how many EVs do we want BUSY? around busy_fraction of them
+        n_evs = len(ev_list)
+        n_busy_target = int(self.busy_fraction * n_evs)
+        #n_busy_target = min(n_busy_target, len(t0_calls))  # cannot exceed number of tick-0 calls
+
+        #used_calls = []
+
+        for i, ev in enumerate(ev_list):
+            # random placement for all EVs
             gi = self.rng.choice(all_idx)
             self.env.move_ev_to_grid(ev.id, gi)
-            # 3) busy/idle split only (do NOT build offers here)
-            if self.rng.random() < self.busy_fraction:
+
+            if i < n_busy_target:
+                # this EV starts BUSY with a tick-0 incident
+                '''lat, lng = t0_calls[i]
+                gi_inc = point_to_grid_index(
+                    lat,
+                    lng,
+                    self.env.lat_edges,
+                    self.env.lng_edges,
+                )
+                inc = self.env.create_incident(
+                    grid_index=gi_inc,
+                    location=(lat, lng)
+                )
+
+                inc.assignedEvId = ev.id
+                # adapt this if your EV API is different
+                ev.assign_incident(inc.id)'''
+
                 ev.set_state(EvState.BUSY)
                 ev.status = "Navigation"
                 ev.nextGrid = None
-                ev.navEtaMinutes = self.rng.uniform(0.0, self.max_wait_time_HC)                
+                ev.navEtaMinutes = self.rng.uniform(0.0, self.max_wait_time_HC)
                 ev.aggIdleTime = 0.0
                 ev.aggIdleEnergy = 0.0
-            
+                '''if self.env.hospitals:
+                    hid = self.rng.choice(list(self.env.hospitals.keys()))
+                    hc = self.env.hospitals[hid]
+                    ev.navTargetHospitalId = hid
+                    ev.navdstGrid = hc.gridIndex
+                    # initial ETA estimate (optional)
+                    eta = hc.estimate_eta_minutes(ev.location[0], ev.location[1])
+                    wait = float(getattr(hc, "waitTime", 0.0))
+                    ev.navEtaMinutes = eta + wait
+
+                used_calls.append((lat, lng))'''
             else:
+                # this EV starts IDLE with random aggregated idle metrics
                 ev.set_state(EvState.IDLE)
                 ev.status = "Idle"
                 ev.nextGrid = None
@@ -529,42 +601,38 @@ class Controller:
                 ev.navTargetHospitalId = None
                 ev.navEtaMinutes = 0.0
                 ev.navUtility = 0.0
-            # clear SARNS
+
+            # clear SARNS cleanly
             ev.sarns.clear()
-            ev.sarns["state"] = []
-            ev.sarns["action"] = 0.0
+            ev.sarns["state"] = None
+            ev.sarns["action"] = None
             ev.sarns["reward"] = 0.0
-            ev.sarns["next_state"] = []
+            ev.sarns["next_state"] = None
 
-        # 4) pick a random day and build schedule
-        series = pd.to_datetime(self.df[self.time_col], errors="coerce").dt.normalize().dropna()
-        days = series.unique()
-        if len(days) == 0:
-            raise RuntimeError(f"No valid dates in dataset for {self.time_col}")
-        self._current_day = pd.Timestamp(self.rng.choice(list(days)))
-        self._schedule = build_daily_incident_schedule(
-            self.df,
-            self._current_day,
-            time_col=self.time_col,
-            lat_col=self.lat_col,
-            lng_col=self.lng_col,
-            wkt_col=self.wkt_col,
-        )
+        # 5) remove used tick-0 calls from the schedule so they don't spawn again
+        '''if used_calls:
+            remaining = [pt for pt in t0_calls if pt not in used_calls]
+            self._schedule[0] = remaining
 
-        # 5) initialise hospital waits for this episode (random range)
-        #    signature: reset_hospital_waits(low_min, high_min, seed)
-        #self.env.reset_hospital_waits(low_min=H_MIN, high_min=H_MAX, seed=self.rng.randint(1, 10_000))
-
-        # 6) log
+        # finally, log again if you want
         total_today = 0 if not self._schedule else sum(len(v) for v in self._schedule.values())
+
         #print(f"[Controller] _reset_episode ready: day={self._current_day.date()} incidents_today={total_today}")
         
+        print(f"[Controller] _reset_episode ready: day={self._current_day.date()} "
+            f"incidents_today={total_today}, t0_used={len(used_calls)}")'''
+
+
     # ---------- per-tick ----------
     def _spawn_incidents_for_tick(self, t: int) -> None:
         todays_at_tick = self._schedule.get(t, []) if self._schedule else []
         for (lat, lng) in todays_at_tick:
+            self._spawn_attempts +=1
             gi = point_to_grid_index(lat, lng, self.env.lat_edges, self.env.lng_edges)
+            if gi is None or gi < 0:
+                continue
             self.env.create_incident(grid_index=gi, location=(lat, lng), priority="MED")
+            self._spawn_success +=1
 
     def _tick(self, t: int) -> None:
              
@@ -812,13 +880,7 @@ class Controller:
             total_dispatched = max(total_dispatched, n_servicing)
 
         avg_rep_reward = total_rep_reward / max(1, n_rep_moves)
-        self.ep_l = []
-        for l in self.ep_loss_nav:
-            if l == None:
-                l = 0.06
-            float(l) 
-            self.ep_l.append(l)   
-        avg_ep_loss = statistics.mean(self.ep_l)
+        
         stats = {
             "episode": episode_idx,
             "avg_rep_reward": avg_rep_reward,
@@ -832,14 +894,7 @@ class Controller:
             f"moves={n_rep_moves:3d} dispatched={total_dispatched:3d} "
             f"incidents={len(self.env.incidents):3d}"
         )'''
-       
-        
-        
-
-        
-         # reset for next episode
-        print("end of training episode" , episode_idx)
-
+      
         return stats
 
     

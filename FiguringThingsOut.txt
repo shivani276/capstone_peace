@@ -26,3 +26,57 @@ For i in episode?[till max number]
         grid - index, the number of incidents [I expect the incidents themselves to be here], the vehicles, the hospitals, the neighbours of the grid
         I want to create a file that has functions, that does and if I call it, in another file, I should be able to get what I want.
         I wanted to make one file that had the object definitions in it
+
+Issued address
+complexity
+solving the problem
+metrics
+
+Algorithmic complexity
+Legends -> Proposed work, comparing work, random allocation. 
+Let EMVs take their own decisions in a distributed manner
+The problem of choosing a HC is taken 
+Connecting lines in literature survey
+All author names to be there in references
+
+According to environment change -> Update constraints
+No more talking about about spatio temporal changes in reformulation
+System level repositioning decisions ->Algo 1
+
+Algo after describing
+Require, Ensure - Input, Ouput
+yigt = 0 for all EVs
+
+Reward -> remove the constraint thingy.
+Write objective of idle EMV, then P1(i) -> P for every vehicle I
+s upperscript 1, 2
+similar for a and R
+Both DQN same structure -> Q described only once
+Equation 4.5 can be written as recursive equation -> Bellman equation
+
+Solution methodology -> Training Algorithm for the DRL model 
+
+Algorithm 2 - System level dispatch decisions
+
+Output for algo dispatch is xikt
+For all i,k pair -> Utility total -[5x10] -> choose max value, remove row and column.
+Find args max of utility, remove arg max till arg max no longer exists
+load at HC time varying. Travel time to destination also varying.
+Use the word in the heading. Especially in the first sentence. 
+DRL-> Neural network model 
+Chapter - Training DQN model
+Algorithm 3 - Solving the proposed IMTS problem, Finding the optimal rep, dis, navigation decisions
+Put a few lines before algo
+Speak about DQN -> properly - > Hidden layers and stuff
+Loss function - Mean squared Loss
+Solution method to solve the MDP and we're solving it through DQN - > Reference,
+Rewritten the parameters for both busy and idle -> theta 1, theta 2.
+
+Where we use model to generate experiences, use experiences to train model.
+The following notations are used. In order to train-> Replay buffer
+We need reference models to calculate error -> Target network
+Loss functions, how parameters are set, all equations then algo
+l -> samples
+m -> idle or busy.
+s_l, rl, al, and prime for next state. em for error[error between the DQN, sample error, contribution of loss due to sample n] -> Not temporal error
+In algo - Calculate reward according to equation. After all calculations, Aggreggate rewards over all vehicles, in timeslot, what was the sample objective function value. Plot overall objective converging. 
