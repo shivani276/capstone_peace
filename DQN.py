@@ -40,12 +40,14 @@ class ReplayBuffer:
         batch = random.sample(self.buffer, batch_size)
 
         states, actions, rewards, next_states, dones = zip(*batch)
-
+        rewards_clean = [0.0 if r is None else float(r) for r in rewards]
         S  = torch.stack(states).to(device)
         A  = torch.tensor(actions, dtype=torch.long, device=device)
-        R  = torch.tensor(rewards, dtype=torch.float32, device=device)
+        R  = torch.tensor(rewards_clean, dtype=torch.float32, device=device)
         S2 = torch.stack(next_states).to(device)
         D  = torch.tensor(dones, dtype=torch.float32, device=device)
+        #if any(r is None for r in rewards):
+            #print("[ReplayBuffer] WARNING: None reward found in batch:", rewards)
 
         return S, A, R, S2, D
 
