@@ -459,7 +459,7 @@ print("Expected dest (NW or stay if -1):", expected)
 
 #======================PushRepositionBuffer=================#
 
-import numpy as np
+'''import numpy as np
 from Entities.Incident import Incident, Priority, IncidentStatus
 from datetime import datetime
 from MAP_env import MAP
@@ -486,5 +486,6 @@ ev.sarns["reward"] = 0.7
 
 ctrl._push_reposition_transition(ev)
 
-print("Buffer size after:", len(ctrl.buffer_reposition))
+print("Buffer size after:", len(ctrl.buffer_reposition))'''
+
 
