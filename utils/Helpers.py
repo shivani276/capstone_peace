@@ -171,19 +171,22 @@ def utility_navigation(W_busy: float, H_min: float = 0.0, H_max: float = H_MAX) 
 
 #Dispatch utilities
 def utility_dispatch_v(W_idle: float, W_min: float = 0.0, W_max: float = W_MAX) -> float:
-  #U_V calcluation
-  if W_idle>W_max:
-    U_V = W_idle/W_max
-  else:
-    U_V =1
-  return U_V
+    #U_RW calcluation
+    if W_idle < W_min:
+        U_V =1
+    elif W_min < W_idle < W_max:
+        U_V = (W_idle-W_min)/(W_max-W_min) # To be verified with U_RW = (W_max-W_idle)/(W_max-W_min)
+    else:
+        U_V =0
+    return U_V
 def utility_dispatch_p(W_kt: float, P_min: float = 0.0, P_max: float = P_MAX) -> float:
   #U_P calcluation
-  if W_kt>P_max:
-    U_P = W_kt/P_max
-  else:
-    U_P =1
-  return U_P
+    #U_RW calcluation
+    if W_kt < P_MIN:
+        return 1
+    U_P = (P_max-W_kt)/(P_max-P_MIN) # To be verified with U_RW = (W_max-W_idle)/(W_max-W_min)
+    return U_P
+
 def utility_dispatch_total(W_idle: float, W_kt: float, beta: float = 0.5, W_min: float = 0.0,
     W_max: float = 1.0, P_min: float = 0.0, P_max: float = 1.0) -> float:
   U_V = utility_dispatch_v(W_idle)
