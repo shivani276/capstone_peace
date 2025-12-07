@@ -34,11 +34,24 @@ ctrl = Controller(
 )
 
 n_episodes = 500
-all_stats = []
+stats_list = []
 
-for ep in range(1, n_episodes + 1):
-    #dispatched = 0
+for ep in range(1, 100):
     stats = ctrl.run_training_episode(ep)
-    all_stats.append(stats)
-    
+    print(stats)
 
+
+import matplotlib.pyplot as plt
+
+episodes = list(range(1, len(ctrl.q_rep_history) + 1))
+
+plt.figure(figsize=(10, 4))
+plt.plot(episodes, ctrl.q_rep_history, label="Avg max Q (reposition)")
+plt.plot(episodes, ctrl.q_nav_history, label="Avg max Q (navigation)")
+plt.xlabel("Episode")
+plt.ylabel("Average max Q(s,·)")
+plt.title("Q-value convergence")
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
