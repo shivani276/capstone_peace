@@ -488,4 +488,145 @@ ctrl._push_reposition_transition(ev)
 
 print("Buffer size after:", len(ctrl.buffer_reposition))'''
 
+# ===================== TEST NAV STATE =======================
+
+'''from MAP_env import MAP
+from Controller import Controller
+from Entities.ev import EvState
+
+print("\n========== TESTING build_state_nav1 ==========")
+
+# 1. Build environment + controller (your real paths)
+env = MAP("Data/grid_config_2d.json")
+env.init_evs()
+env.init_hospitals("Data/hospitals_latlong.csv")
+ctrl = Controller(env, csv_path="Data/5Years_SF_calls_latlong.csv")
+
+# 2. Pick any EV to test on
+ev = next(iter(env.evs.values()))
+ev.state = EvState.BUSY     # Navigation only activates for busy EVs
+ev.status = "Navigation"
+
+# 3. Ensure location exists (safety)
+if ev.location is None:
+    ev.location = (0.0, 0.0)
+
+# 4. Call your build_state_nav1 function
+state_vec, grid_ids = ctrl.build_state_nav1(ev)
+
+print("EV id:", ev.id)
+print("EV grid index:", ev.gridIndex)
+print("NAV state_vec:", state_vec)
+print("NAV grid_ids:", grid_ids)
+print("Length of state:", len(state_vec))
+print("Length of grid_ids:", len(grid_ids))
+
+# 5. Check duplicate grid indices
+if len(grid_ids) != len(set(grid_ids)):
+    print("⚠ WARNING: Duplicate grid indices detected (NOT expected!)")
+else:
+    print("✓ No duplicates — HC-grid mapping correct.")
+
+print("========== END TEST ==========\n")
+
+
+# ===================== TEST _select_nav_action (random) =======================
+
+from Entities.ev import EvState
+
+print("\n========== TESTING _select_nav_action (random) ==========")
+
+# 1. Pick a real EV
+ev = next(iter(env.evs.values()))
+ev.state = EvState.BUSY
+ev.status = "Navigation"
+
+# 2. Make sure it has some location
+if ev.location is None:
+    ev.location = (0.0, 0.0)
+
+# 3. Build the navigation state
+state_vec, grid_ids = ctrl.build_state_nav1(ev)
+
+print("State vec:", state_vec)
+print("Grid IDs:", grid_ids)
+
+if len(state_vec) == 0:
+    print("No HC-grids found — cannot test random action.")
+else:
+    # 4. Force epsilon = 1 so RANDOM branch always activates
+    old_eps = ctrl.epsilon
+    ctrl.epsilon = 1.0
+
+    # 5. Call the action selector
+    slot = ctrl._select_nav_action(state_vec)
+
+    # 6. Restore epsilon
+    ctrl.epsilon = old_eps
+
+    if 0 <= slot < len(grid_ids):
+        print("Random slot chosen:", slot)
+        print("Corresponding grid:", grid_ids[slot])
+    else:
+        print("ERROR: invalid slot returned:", slot)
+
+print("========== END TEST ==========\n")
+
+print("\n========== TESTING _tick NAVIGATION BLOCK ==========")
+
+# 0. Properly initialise an episode so sarns keys exist
+ctrl._reset_episode()
+
+# 1. Pick any EV
+ev = next(iter(env.evs.values()))
+
+# 2. Force it into a navigation state
+ev.state = EvState.BUSY
+ev.status = "Navigation"
+
+# 3. Make sure it has some location
+if ev.location is None:
+    # If your Grid has a centre or something similar, prefer that; fallback to (0,0)
+    try:
+        g = env.grids[ev.gridIndex]
+        ev.location = (g.lat, g.lng) if hasattr(g, "lat") else (0.0, 0.0)
+    except Exception:
+        ev.location = (0.0, 0.0)
+
+# 4. Make nav policy random to see variety (optional)
+old_eps = ctrl.epsilon
+ctrl.epsilon = 1.0
+
+# 5. Call one tick
+ctrl._tick(0)   # or ctrl._tick(step_idx) if your signature is like that
+
+# 6. Restore epsilon
+ctrl.epsilon = old_eps
+
+print("========== END _tick NAV TEST ==========\n")'''
+
+import pandas as pd
+from utils.Helpers import load_calls  # your helper :contentReference[oaicite:1]{index=1}
+
+csv_path = "Data/5Years_SF_calls_latlong.csv"
+df_all = load_calls(csv_path)
+
+time_col = "Received DtTm"  # adjust if your column name differs
+df_all[time_col] = pd.to_datetime(df_all[time_col], errors="coerce")
+df_all = df_all.dropna(subset=[time_col])
+
+# Normalise to date only
+days = df_all[time_col].dt.normalize()
+
+# Example 1: simple chronological split (first 80% days train, last 20% test)
+unique_days = sorted(days.unique())
+split_idx = int(0.8 * len(unique_days))
+train_days = set(unique_days[:split_idx])
+test_days  = set(unique_days[split_idx:])
+
+df_train = df_all[days.isin(train_days)].copy()
+df_test  = df_all[days.isin(test_days)].copy()
+
+print("Train rows:", len(df_train), "Test rows:", len(df_test))
+print("Train days:", len(train_days), "Test days:", len(test_days))
 
