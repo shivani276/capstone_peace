@@ -120,7 +120,7 @@ class MAP:
             g.evs.clear()
 
         rng = random.Random(seed)
-        n_evs = 27
+        n_evs = 11
         all_idx = list(self.grids.keys())
 
         for _ in range(n_evs):
