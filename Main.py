@@ -73,7 +73,7 @@ ctrl = Controller(
 )
 
 n_episodes = 500
-<<<<<<< HEAD
+
 stats_list = []
 
 for ep in range(1, 100):
@@ -94,7 +94,7 @@ plt.title("Q-value convergence")
 plt.legend()
 plt.grid(True)
 plt.tight_layout()
-=======
+
 all_stats = []
 all_nav_loss = []
 all_repo_loss = [] # New list for repositioning
@@ -132,5 +132,5 @@ plt.grid(True)
 plt.legend()
 
 plt.tight_layout() # Prevents overlap
->>>>>>> 6ea94e840a56a45373299f405eb9c02e93a178d3
+
 plt.show()

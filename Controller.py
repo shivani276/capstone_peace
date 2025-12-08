@@ -82,7 +82,7 @@ class Controller:
             self.dqn_reposition_target = DQNetwork(state_dim, action_dim).to(self.device)
             self.dqn_reposition_target.load_state_dict(self.dqn_reposition_main.state_dict())
             self.opt_reposition = torch.optim.Adam(self.dqn_reposition_main.parameters(), lr=1e-3)
-            self.buffer_reposition = ReplayBuffer(100_000)
+            self.buffer_reposition = ReplayBuffer(100)
 
             action_dim_nav = max(1, len(self.env.hospitals))
             state_dim_nav = max(1, action_dim_nav)
@@ -93,7 +93,7 @@ class Controller:
             self.dqn_navigation_target = DQNetwork(state_dim_nav, action_dim_nav).to(self.device)
             self.dqn_navigation_target.load_state_dict(self.dqn_navigation_main.state_dict())
             self.opt_navigation = torch.optim.Adam(self.dqn_navigation_main.parameters(), lr=1e-3)
-            self.buffer_navigation = ReplayBuffer(100_000)
+            self.buffer_navigation = ReplayBuffer(100)
 
             hard_update(self.dqn_reposition_target, self.dqn_reposition_main)
             hard_update(self.dqn_navigation_target, self.dqn_navigation_main)
