@@ -36,10 +36,12 @@ class Controller:
         lat_col: Optional[str] = "Latitude",
         lng_col: Optional[str] = "Longitude",
         wkt_col: Optional[str] = None,
+        test_mode: bool = False,
         
         
     ):
         self.env = env
+        self.test_mode = test_mode
         print("[DEBUG] hospitals at Controller init:", len(self.env.hospitals))
         self.ticks_per_ep = ticks_per_ep
         self.rng = random.Random(seed)
@@ -55,6 +57,10 @@ class Controller:
 
 
         self.busy_fraction = 0.5
+
+        # Track losses for plotting
+        self.ep_nav_losses = [] 
+        self.ep_repo_losses = []
 
         # DQNs (state=19, action=9 [stay + 8 neighbours])
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
