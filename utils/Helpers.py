@@ -172,10 +172,12 @@ def utility_navigation(W_busy: float, H_min: float = 0.0, H_max: float = H_MAX) 
 #Dispatch utilities
 def utility_dispatch_v(W_idle: float, W_min: float = 0.0, W_max: float = W_MAX) -> float:
   #U_V calcluation
-  if W_idle>W_max:
-    U_V = W_idle/W_max
+  if W_idle < W_min:
+        U_V =1
+  elif W_min<W_idle<W_max:
+        U_V = (W_idle-W_min)/(W_max-W_min) # To be verified with U_RW = (W_max-W_idle)/(W_max-W_min)
   else:
-    U_V =1
+        U_V =0
   return U_V
 def utility_dispatch_p(W_kt: float, P_min: float = 0.0, P_max: float = P_MAX) -> float:
   #U_P calcluation
@@ -213,7 +215,7 @@ def utility_repositioning(W_idle: float, E_idle: float, alpha: float = 0.5, W_mi
     U_R = alpha * U_RW + (1.0-alpha)*U_RE
     return U_R
 
-'''
+''' 
 #Testing
 W_BUSY = 20.54, W_KT = 8.25, W_IDLE = 27.14, E_IDLE = 15.20
 alpha = 0.5, beta=0.5 
@@ -224,6 +226,7 @@ print("Navigation utility: ", utility_navigation(W_BUSY, H_MIN, H_MAX))
 print("Repositioning utility: ", utility_repositioning(W_IDLE,E_IDLE,alpha,W_MIN,W_MAX,E_MIN,E_MAX))
 '''
 
+''' 
 # ---- Optional: simple reward wrappers you can call during learning ----
 
 def reward_dispatch(W_idle: float, W_kt: float) -> float:
@@ -258,7 +261,7 @@ def reward_reposition(
     base = 2.0 * U_R - 1.0
     penalty = max(0.0, min(1.0, move_cost_norm)) * max(0.0, cost_weight)
     return base - penalty
-
+'''
 import re
 _WKT_POINT_RE = re.compile(r"POINT\s*\(\s*([\-0-9\.]+)\s+([\-0-9\.]+)\s*\)", re.IGNORECASE)
 

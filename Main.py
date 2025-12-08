@@ -61,15 +61,15 @@ from Controller import Controller
 # Initialize Environment
 env = MAP("Data/grid_config_2d.json")
 env.init_evs()
-env.init_hospitals("D:\\Downloads\\hospitals_latlong.csv")
-#env.init_hospitals("Data/hospitals_latlong.csv")
+#env.init_hospitals("D:\\Downloads\\hospitals_latlong.csv")
+env.init_hospitals("Data/hospitals_latlong.csv")
 
 # Initialize Controller
 ctrl = Controller(
     env,
     ticks_per_ep=180,
-    csv_path="D:\\Downloads\\5Years_SF_calls_latlong.csv"
-    #csv_path="Data/5Years_SF_calls_latlong.csv"
+    #csv_path="D:\\Downloads\\5Years_SF_calls_latlong.csv"
+    csv_path="Data/5Years_SF_calls_latlong.csv"
 )
 
 n_episodes = 500
