@@ -204,6 +204,62 @@ class Controller:
         vec.append(float(ev.aggIdleEnergy))
         return vec
     
+    def build_state_nav1(self, ev):
+
+    # 1) Collect all grid indices that have at least one hospital
+        hc_grids = sorted({h.gridIndex for h in self.env.hospitals.values()})
+
+        state_vec: list[float] = []
+        grid_ids:  list[int]   = []
+
+        # If there are no hospitals at all, return empty lists
+        if not hc_grids:
+            return state_vec, grid_ids
+
+        # 2) Pre-compute mean wait time per HC-grid
+        grid_mean_wait = {}
+        for g_idx in hc_grids:
+            waits = []
+            for h in self.env.hospitals.values():
+                if h.gridIndex != g_idx:
+                    continue
+                w = getattr(h, "waitTime", None)
+                if w is not None:
+                    waits.append(float(w))
+            if waits:
+                grid_mean_wait[g_idx] = sum(waits) / len(waits)
+            else:
+                grid_mean_wait[g_idx] = 0.0
+
+        # 3) Build feature per HC-grid
+        ev_lat, ev_lng = ev.location
+
+        for g_idx in hc_grids:
+            # pick any hospital in this grid to approximate ETA to the grid
+            hs_in_grid = [h for h in self.env.hospitals.values()
+                        if h.gridIndex == g_idx]
+            if not hs_in_grid:
+                # should not happen because we built hc_grids from hospitals,
+                # but be defensive
+                continue
+
+            h0 = hs_in_grid[0]
+
+            # ETA from EV to this grid (via representative hospital)
+            try:
+                eta = float(h0.estimate_eta_minutes(ev_lat, ev_lng))
+            except Exception:
+                eta = 0.0
+
+            mean_wait = grid_mean_wait[g_idx]
+            feature = eta + mean_wait
+
+            state_vec.append(feature)
+            grid_ids.append(g_idx)
+
+        return state_vec, grid_ids
+
+    
     '''def build_state_nav(self, ev) -> list[float]:
         gi = ev.gridIndex
         h_list = self.env.hospitals
@@ -218,7 +274,7 @@ class Controller:
             vec_n.append(wg_h)
         return vec_n
 
-    '''def build_state_nav1(self, ev):
+    def build_state_nav1(self, ev):
 
         gi = ev.gridIndex
         hids = sorted(self.env.hospitals.keys())  # FIXED ORDER
@@ -237,7 +293,7 @@ class Controller:
         #max_wg = max(wgs) if wgs else 1.0
         #vec_n = [wg / max_wg for wg in wgs]
 
-        return wgs
+            return wgs'''
 
 
 
@@ -248,6 +304,11 @@ class Controller:
 
     def _select_action(self, state_vec: list[float], gi: int) -> int:
         if getattr(self, "test_mode", False):
+            neighbours = self._get_direction_neighbors_for_index(gi)
+            valid = [gi] + [nb for nb in neighbours if nb != -1]
+            return self.rng.choice(valid) if valid else gi
+
+        if self.dqn_reposition_main is None:
             neighbours = self._get_direction_neighbors_for_index(gi)
             valid = [gi] + [nb for nb in neighbours if nb != -1]
             return self.rng.choice(valid) if valid else gi
@@ -320,7 +381,8 @@ class Controller:
         # 2) Exploitation: DQN greedy
         s = torch.tensor(state_vec, dtype=torch.float32, device=self.device).unsqueeze(0)
         # shape: (1, n_actions)
-        q = self.dqn_navigation_main(s).detach().cpu().numpy().ravel()
+        if self.dqn_navigation_main is not None:
+            q = self.dqn_navigation_main(s).detach().cpu().numpy().ravel()
         # q[i] is the Q-value for choosing slot i (i.e. grid_ids[i])
 
         slot = int(np.argmax(q))
