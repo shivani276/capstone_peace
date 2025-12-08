@@ -58,6 +58,7 @@ class EV:
 
     def add_idle(self, dt: float) -> None:
         self.aggIdleTime += dt
+        self.aggIdleEnergy += 0.012
         
     def add_busy(self, dt: float) -> None:
         self.aggBusyTime += dt

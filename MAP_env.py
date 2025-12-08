@@ -384,7 +384,7 @@ class MAP:
 
             # 1) EV staying idle in its chosen grid
             if ev.state == EvState.IDLE and ev.gridIndex == ev.sarns.get("action"):
-                ev.add_idle(dt_minutes)
+                ev.add_idle(8)
 
             # 2) EV has been dispatched but no reward yet: move it to patient's grid
             elif ev.status == "Dispatching" and ev.assignedPatientId is not None:
