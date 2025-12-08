@@ -109,6 +109,27 @@ class Controller:
         self._spawn_attempts = 0
         self._spawn_success = 0
 
+        #CHECK REPOSITIONING
+        # Episode-level history of repositioning performance
+        self.idle_time_history: list[float] = []
+        self.idle_energy_history: list[float] = []
+
+        self._ep_idle_added: float = 0.0
+        self._ep_energy_added: float = 0.0
+        self._ep_idle_samples: int = 0
+
+        self._ep_idle_baseline: dict[int, float] = {}
+        self._ep_energy_baseline: dict[int, float] = {}
+
+
+        #Q_VALUE Convergence
+        self.q_rep_history: list[float] = []
+        self.q_nav_history: list[float] = []
+
+
+
+
+
     
     def _get_direction_neighbors_for_index(self, index: int) -> list[int]:
 
@@ -215,7 +236,7 @@ class Controller:
 
         return vec
     
-    def build_state_nav(self, ev) -> list[float]:
+    '''def build_state_nav(self, ev) -> list[float]:
         gi = ev.gridIndex
         g = self.env.grids[gi] #from dictionary
         h_list = self.env.hospitals    #from dictionary
@@ -229,9 +250,9 @@ class Controller:
             wg_h = eta + wait
             vec_n.append(wg_h)
             #as many hospitals those many get appended to state vector
-        return vec_n
+        return vec_n'''
 
-    def build_state_nav1(self, ev):
+    '''def build_state_nav1(self, ev):
         """
         Navigation state over ALL hospitals.
         Returns:
@@ -263,7 +284,119 @@ class Controller:
         #max_wg = max(wgs) if wgs else 1.0
         #vec_n = [wg / max_wg for wg in wgs]
 
-        return wgs
+        return wgs'''
+    '''def build_state_nav1(self, ev):
+
+
+        # 1) Collect all grid indices that have at least one hospital
+        hc_grids = sorted({h.gridIndex for h in self.env.hospitals.values()})
+
+        state_vec: list[float] = []
+        grid_ids:  list[int]   = []
+
+        if not hc_grids:
+            # No hospitals at all – navigation has nothing to choose from
+            return state_vec, grid_ids
+
+        # 2) Pre-compute mean wait time per HC-grid
+        grid_mean_wait = {}
+        for g_idx in hc_grids:
+            waits = []
+            for h in self.env.hospitals.values():
+                if h.gridIndex != g_idx:
+                    continue
+                w = getattr(h, "waitTime", None)
+                if w is not None:
+                    waits.append(float(w))
+            if waits:
+                grid_mean_wait[g_idx] = sum(waits) / len(waits)
+            else:
+                grid_mean_wait[g_idx] = 0.0
+
+        # 3) Build feature per HC-grid
+        ev_lat, ev_lng = ev.location
+
+        for g_idx in hc_grids:
+            # pick any hospital in this grid to approximate ETA to the grid
+            hs_in_grid = [h for h in self.env.hospitals.values()
+                        if h.gridIndex == g_idx]
+            if not hs_in_grid:
+                # should not happen because we built hc_grids from hospitals,
+                # but be defensive
+                continue
+
+            h0 = hs_in_grid[0]
+
+            # ETA from EV to this grid (via representative hospital)
+            try:
+                eta = float(h0.estimate_eta_minutes(ev_lat, ev_lng))
+            except Exception:
+                eta = 0.0
+
+            mean_wait = grid_mean_wait[g_idx]
+            feature = eta + mean_wait
+
+            state_vec.append(feature)
+            grid_ids.append(g_idx)
+
+        return state_vec, grid_ids'''
+    def build_state_nav1(self, ev):
+
+
+        # 1) Collect all grid indices that have at least one hospital
+        hc_grids = sorted({h.gridIndex for h in self.env.hospitals.values()})
+
+        state_vec: list[float] = []
+        grid_ids:  list[int]   = []
+
+        # If there are no hospitals at all, return empty lists
+        if not hc_grids:
+            return state_vec, grid_ids
+
+        # 2) Pre-compute mean wait time per HC-grid
+        grid_mean_wait = {}
+        for g_idx in hc_grids:
+            waits = []
+            for h in self.env.hospitals.values():
+                if h.gridIndex != g_idx:
+                    continue
+                w = getattr(h, "waitTime", None)
+                if w is not None:
+                    waits.append(float(w))
+            if waits:
+                grid_mean_wait[g_idx] = sum(waits) / len(waits)
+            else:
+                grid_mean_wait[g_idx] = 0.0
+
+        # 3) Build feature per HC-grid
+        ev_lat, ev_lng = ev.location
+
+        for g_idx in hc_grids:
+            # pick any hospital in this grid to approximate ETA to the grid
+            hs_in_grid = [h for h in self.env.hospitals.values()
+                        if h.gridIndex == g_idx]
+            if not hs_in_grid:
+                # should not happen because we built hc_grids from hospitals,
+                # but be defensive
+                continue
+
+            h0 = hs_in_grid[0]
+
+            # ETA from EV to this grid (via representative hospital)
+            try:
+                eta = float(h0.estimate_eta_minutes(ev_lat, ev_lng))
+            except Exception:
+                eta = 0.0
+
+            mean_wait = grid_mean_wait[g_idx]
+            feature = eta + mean_wait
+
+            state_vec.append(feature)
+            grid_ids.append(g_idx)
+
+        return state_vec, grid_ids
+
+
 
 
 
@@ -325,7 +458,7 @@ class Controller:
 
 
 
-    def _select_nav_action(self, state_vec) -> int:
+    '''def _select_nav_action(self, state_vec) -> int:
         """
         Epsilon greedy over all hospitals.
 
@@ -353,7 +486,34 @@ class Controller:
         
         hid = int(np.argmax(q))
         hid = max(0, min(hid, n_actions - 1))
-        return hid
+        return hid'''
+    
+    def _select_nav_action(self, state_vec: list[float]) -> int:
+
+
+        n_actions = len(state_vec)
+        if n_actions == 0:
+            return -1  # no hospital grids to choose from
+
+        # 1) Exploration: random slot
+        if self.rng.random() < self.epsilon:
+            return self.rng.randint(0, n_actions - 1)
+
+        # 2) Exploitation: DQN greedy
+        s = torch.tensor(state_vec, dtype=torch.float32, device=self.device).unsqueeze(0)
+        # shape: (1, n_actions)
+        q = self.dqn_navigation_main(s).detach().cpu().numpy().ravel()
+        # q[i] is the Q-value for choosing slot i (i.e. grid_ids[i])
+
+        slot = int(np.argmax(q))
+        # safety clamp, just in case
+        if slot < 0:
+            slot = 0
+        elif slot >= n_actions:
+            slot = n_actions - 1
+
+        return slot
+
 
 
 
@@ -666,17 +826,26 @@ class Controller:
 
         for ev in self.env.evs.values():
             if ev.state == EvState.BUSY and ev.status == "Navigation":
-                state_vec = self.build_state_nav1(ev) #this is the same as idle
+                state_vec,grid_ids = self.build_state_nav1(ev) #this is the same as idle
                 #replace this with the below navigation state builder
                 #state_vec = self.build_state_nav(ev)
                 ev.sarns["state"] = state_vec
-                a_gi = self._select_nav_action(state_vec)
+                slo = self._select_nav_action(state_vec)
                 #print("navigation actions", a_gi)
-                ev.sarns["action"] = a_gi
-                h=self.env.hospitals.get(a_gi)
+                ev.sarns["action"] = slo
+                dest_grid = grid_ids[slo]
+                candidate_hs = [
+                h for h in self.env.hospitals.values()
+                if h.gridIndex == dest_grid
+                ]
+                #h=self.env.hospitals.get(a_gi)
+                # 5. Pick a concrete hospital (best = minimum wait time)
+                h = min(candidate_hs, key=lambda hh: hh.waitTime or 0.0)
+
                 if h is not None:
-                    eta = h.estimate_eta_minutes(ev.location[0], ev.location[1])
+                    eta = float(h.estimate_eta_minutes(ev.location[0], ev.location[1]))
                     ev.nextGrid = self.env.next_grid_towards(ev.gridIndex, h.gridIndex)
+                    ev.navTargetHospitalId = h.id
                     ev.navdstGrid = h.gridIndex
                     ev.status = "Navigation"
                     if h.waitTime is not None:
@@ -684,8 +853,34 @@ class Controller:
                         ev.navEtaMinutes = w_busy
                         ev.sarns["reward"] = utility_navigation(w_busy)
                         #print("reward for navigation", ev.sarns["reward"])
+                        print(
+                        f"[NAV-DEBUG] ev={ev.id} "
+                        f"slot={slo} dest_grid={dest_grid} "
+                        f"navTargetHospitalId={ev.navTargetHospitalId} "
+                        f"nextGrid={ev.nextGrid} navdstGrid={ev.navdstGrid} "
+                        f"w_busy={w_busy:.2f}"
+                        )
+
+
+            # snapshot idle/energy before env update
+        idle_before = {ev.id: ev.aggIdleTime for ev in self.env.evs.values()}
+        energy_before = {ev.id: ev.aggIdleEnergy for ev in self.env.evs.values()}
     
         self.env.update_after_tick(8)
+
+        # measure how much idle time / energy was added this tick
+        for ev in self.env.evs.values():
+            prev_idle = idle_before.get(ev.id, ev.aggIdleTime)
+            prev_energy = energy_before.get(ev.id, ev.aggIdleEnergy)
+
+            di = ev.aggIdleTime - prev_idle
+            de = ev.aggIdleEnergy - prev_energy
+
+            if di > 0:
+                self._ep_idle_added += di
+            if de > 0:
+                self._ep_energy_added += de
+
         #next state???????????????  
         
         for ev in self.env.evs.values():
@@ -693,6 +888,7 @@ class Controller:
                 #s2 = self._build_state(ev)
                 #append this into the push rep trans, remove s2 from there
                 #self._push_reposition_transition(ev)
+
                 sr_t  = ev.sarns.get("state")
                 ar_t  = ev.sarns.get("action")
                 rr_t  = ev.sarns.get("reward")
@@ -748,6 +944,12 @@ class Controller:
         self._train_reposition(batch_size=64, gamma=0.99)
         
         self._train_navigation(batch_size=64, gamma=0.99)
+
+        '''print("EV state distribution:",
+        sum(ev.state == EvState.IDLE for ev in self.env.evs.values()), "idle,",
+        sum(ev.status == "Dispatching" for ev in self.env.evs.values()), "dispatching,",
+        sum(ev.state == EvState.BUSY for ev in self.env.evs.values()), "busy")'''
+
 
                 
         # 4) Gridwise dispatch (Algorithm 2) using EVs that stayed/rejected
@@ -841,41 +1043,113 @@ class Controller:
 
 
     def run_training_episode(self, episode_idx: int) -> dict:
+        # 1) Reset environment and schedule for this episode
         self._reset_episode()
 
-        total_rep_reward = 0.0
-        n_rep_moves = 0
-        total_dispatched = 0
-        ep_loss_nav = 0
+        # 2) Baseline idle time and energy at episode start (per EV)
+        self._idle_baseline = {
+            ev.id: float(getattr(ev, "aggIdleTime", 0.0))
+            for ev in self.env.evs.values()
+        }
+        energy_baseline = {
+            ev.id: float(getattr(ev, "aggIdleEnergy", 0.0))
+            for ev in self.env.evs.values()
+        }
+
+        # 3) Episode-level accumulators for reposition stats
+        total_rep_reward: float = 0.0
+        n_rep_moves: int = 0
+        total_dispatched: int = 0
+
+        # 4) Run ticks
         for t in range(self.ticks_per_ep):
             self._tick(t)
 
-            # collect simple stats
+            # collect simple reposition stats from EV.sarns
             for ev in self.env.evs.values():
                 r = ev.sarns.get("reward")
                 if r not in (None, 0.0):
                     total_rep_reward += float(r)
                     n_rep_moves += 1
-                    
-            # you already get dispatches count from dispatch_gridwise,
-            # but easiest is: count SERVICING incidents
+
+            # track max number of ASSIGNED incidents (dispatch utilisation)
             n_servicing = sum(
-                1 for inc in self.env.incidents.values()
+                1
+                for inc in self.env.incidents.values()
                 if inc.status == IncidentStatus.ASSIGNED
             )
-            total_dispatched = max(total_dispatched, n_servicing)
+            if n_servicing > total_dispatched:
+                total_dispatched = n_servicing
 
+        # 5) Average reposition reward
         avg_rep_reward = total_rep_reward / max(1, n_rep_moves)
 
-        
+        # 6) Q-value diagnostics (reposition & navigation)
+        avg_q_rep = self._estimate_avg_max_q(which="rep", sample_size=256)
+        avg_q_nav = self._estimate_avg_max_q(which="nav", sample_size=256)
 
+        if avg_q_rep is not None:
+            self.q_rep_history.append(avg_q_rep)
+        else:
+            self.q_rep_history.append(float("nan"))
 
-        
-        print(f"[EP {episode_idx:03d}] schedule_total={self.total_today} "
-        f"spawn_attempts={self._spawn_attempts} "
-        f"spawned_from_schedule={self._spawn_success} "
-        f"total_incidents_in_env={len(self.env.incidents)}")
+        if avg_q_nav is not None:
+            self.q_nav_history.append(avg_q_nav)
+        else:
+            self.q_nav_history.append(float("nan"))
 
+        print(
+            f"[EP {episode_idx:03d}] "
+            f"avg_Q_rep={avg_q_rep if avg_q_rep is not None else 'NA'} "
+            f"avg_Q_nav={avg_q_nav if avg_q_nav is not None else 'NA'}"
+        )
+
+        # 7) Schedule + spawn summary for this episode
+        print(
+            f"[EP {episode_idx:03d}] schedule_total={self.total_today} "
+            f"spawn_attempts={self._spawn_attempts} "
+            f"spawned_from_schedule={self._spawn_success} "
+            f"total_incidents_in_env={len(self.env.incidents)}"
+        )
+        print("Fleet State:",
+        sum(ev.state == EvState.IDLE for ev in self.env.evs.values()), "idle,",
+        sum(ev.status == "Dispatching" for ev in self.env.evs.values()), "dispatching,",
+        sum(ev.state == EvState.BUSY for ev in self.env.evs.values()), "busy")
+
+        # 8) Compute idle/energy added during the episode (baseline → final)
+        '''total_idle_added = 0.0
+        total_energy_added = 0.0
+        contributing_evs = 0
+
+        for ev in self.env.evs.values():
+            base_idle = self._idle_baseline.get(ev.id, 0.0)
+            base_energy = 0.0  # if you later baseline energy too, put it here
+
+            final_idle = float(getattr(ev, "aggIdleTime", 0.0))
+            final_energy = float(getattr(ev, "aggIdleEnergy", 0.0))
+
+            di = max(0.0, final_idle - base_idle)
+            de = max(0.0, final_energy - base_energy)
+
+            total_idle_added += di
+            total_energy_added += de
+
+            if di > 0.0 or de > 0.0:
+                contributing_evs += 1
+
+        denom = contributing_evs if contributing_evs > 0 else max(1, len(self.env.evs))
+
+        avg_idle_added = total_idle_added / denom
+        avg_energy_added = total_energy_added / denom
+
+        self.idle_time_history.append(avg_idle_added)
+        self.idle_energy_history.append(avg_energy_added)'''
+
+        '''print(
+            f"[EP {episode_idx:03d}] "
+            f"avg_idle_added={avg_idle_added:.3f} "
+            f"avg_energy_added={avg_energy_added:.3f}"
+        )'''
 
         stats = {
             "episode": episode_idx,
@@ -883,28 +1157,44 @@ class Controller:
             "rep_moves": n_rep_moves,
             "max_servicing": total_dispatched,
             "total_incidents": len(self.env.incidents),
+            #"avg_idle_added": avg_idle_added,
+            #"avg_energy_added": avg_energy_added,
         }
 
-        '''print(
-            f"[EP {episode_idx:03d}] avg_rep_reward={avg_rep_reward:.3f} "
-            f"moves={n_rep_moves:3d} dispatched={total_dispatched:3d} "
-            f"incidents={len(self.env.incidents):3d}"
+        return stats    
+    import torch
 
-        )
-      
-        print("=== INCIDENTS STILL ACTIVE AT EPISODE END ===")
-        for inc_id, inc in self.env.incidents.items():
-            print(
-            f"ID={inc_id} status={inc.status} grid={inc.gridIndex} wait={inc.waitTime}")'''
-        
+    def _estimate_avg_max_q(self, which: str = "rep", sample_size: int = 256) -> float | None:
+        """
+        Estimate average max Q(s,·) over a random sample of states
+        from the chosen replay buffer ('rep' or 'nav').
+        """
+        if which == "rep":
+            buf = self.buffer_reposition
+            net = self.dqn_reposition_main
+        else:
+            buf = self.buffer_navigation
+            net = self.dqn_navigation_main
 
+        if len(buf) == 0:
+            return None
 
+        # we just need states; your buffer stores (s, a, r, s2, d)
+        n_samples = min(sample_size, len(buf))
+        batch = buf.sample(n_samples, device = self.device)  # use your existing sample() that returns python objects
 
+        states = batch[0]  # assuming sample returns (states, actions, rewards, next_states, dones)
 
+        with torch.no_grad():
+            s_t = torch.stack(
+                [torch.as_tensor(x, dtype=torch.float32, device=self.device) for x in states]
+            )
+            q_all = net(s_t)  # shape: (B, n_actions)
+            if q_all.shape[1] == 0:
+                return None
+            q_max = q_all.max(dim=1).values  # (B,)
+            return float(q_max.mean().item())
 
-        return stats
-
-    
 
     '''def run_one_episode(self) -> None:
         print("[Controller] Resetting episode...")
