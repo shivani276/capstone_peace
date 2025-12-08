@@ -660,6 +660,7 @@ class Controller:
                 sr_t = torch.as_tensor(sr_t, dtype=torch.float32, device=self.device).view(-1)
                 st_2_r = torch.as_tensor(st_2_r, dtype=torch.float32, device=self.device).view(-1) 
                 self.buffer_reposition.push(sr_t, ar_t, rr_t, st_2_r, doner_t)
+                print("Repositioning transition pushed:", sr_t, ar_t, rr_t, st_2_r, doner_t)
                 
                 if len(self.buffer_reposition) >= 1000:
                     Sr, Ar, Rr, S2r, Dr = self.buffer_reposition.sample(64, self.device)
@@ -675,6 +676,7 @@ class Controller:
                 st_2_n = torch.as_tensor(st_2_n, dtype=torch.float32, device=self.device).view(-1)
                
                 self.buffer_navigation.push(s_t, a_t, r_t, st_2_n, done_t)
+                print("Navigation transition pushed:", s_t, a_t, r_t, st_2_n, done_t)
                 
                 if len(self.buffer_navigation) >= 1000:
                     Sn, An, Rn, S2n, Dn = self.buffer_navigation.sample(64, self.device)
