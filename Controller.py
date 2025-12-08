@@ -405,26 +405,29 @@ class Controller:
             batch_size,
             device=self.device
         )
-
-        q_values = self.dqn_reposition_main(states)
+        if self.dqn_reposition_main is not None:
+            q_values = self.dqn_reposition_main(states)
         q_sa = q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
 
         with torch.no_grad():
-            q_next = self.dqn_reposition_target(next_states).max(1)[0]
+            if self.dqn_reposition_target is not None:
+                q_next = self.dqn_reposition_target(next_states).max(1)[0]
             target = rewards + gamma * (1.0 - dones) * q_next
 
         loss = F.smooth_l1_loss(q_sa, target)
 
-        self.opt_reposition.zero_grad()
-        loss.backward()
-        self.opt_reposition.step()
+        if self.opt_reposition is not None:
+            self.opt_reposition.zero_grad()
+            loss.backward()
+            self.opt_reposition.step()
 
         self.ep_repo_losses.append(loss.item())
 
         tau = 0.005
-        for t_param, o_param in zip(self.dqn_reposition_target.parameters(),
-                                    self.dqn_reposition_main.parameters()):
-            t_param.data.mul_(1.0 - tau).add_(tau * o_param.data)
+        if self.dqn_reposition_target is not None and self.dqn_reposition_main is not None:
+            for t_param, o_param in zip(self.dqn_reposition_target.parameters(),
+                                        self.dqn_reposition_main.parameters()):
+                t_param.data.mul_(1.0 - tau).add_(tau * o_param.data)
 
     #===================== NAVIGATION TRAIN ==================#
     
@@ -443,25 +446,29 @@ class Controller:
             done= torch.as_tensor(batch[4], dtype=torch.float32, device=self.device)
 
         with torch.no_grad():
-            q2 = self.dqn_navigation_target(s2).max(dim=1).values
+            if self.dqn_navigation_target is not None:
+                q2 = self.dqn_navigation_target(s2).max(dim=1).values
             y  = r + gamma * (1.0 - done) * q2
 
-        q = self.dqn_navigation_main(s).gather(1, a.view(-1, 1)).squeeze(1)
+        if self.dqn_navigation_main is not None:
+            q = self.dqn_navigation_main(s).gather(1, a.view(-1, 1)).squeeze(1)
 
         loss = torch.nn.functional.smooth_l1_loss(q, y)
-        self.opt_navigation.zero_grad()
-        loss.backward()
-        self.opt_navigation.step()
+        if self.opt_navigation is not None:
+            self.opt_navigation.zero_grad()
+            loss.backward()
+            self.opt_navigation.step()
         
         # --- FIX: TRACK LOSS FOR PLOTTING ---
         self.ep_nav_losses.append(loss.item())
 
         self.nav_step += 1
         if self.nav_step % self.nav_target_update == 0:
-            with torch.no_grad():
-                for p_t, p in zip(self.dqn_navigation_target.parameters(),
-                                self.dqn_navigation_main.parameters()):
-                    p_t.data.mul_(1.0 - self.nav_tau).add_(self.nav_tau * p.data)
+            if self.dqn_navigation_target is not None and self.dqn_navigation_main is not None:
+                with torch.no_grad():
+                    for p_t, p in zip(self.dqn_navigation_target.parameters(),
+                                      self.dqn_navigation_main.parameters()):
+                        p_t.data.mul_(1.0 - self.nav_tau).add_(self.nav_tau * p.data)
 
         if self.nav_step % 500 == 0:
             print(f"[Controller] NAV train step={self.nav_step} loss={loss.item():.4f}")
@@ -833,9 +840,9 @@ class Controller:
 
             #"avg_idle_added": avg_idle_added,
             #"avg_energy_added": avg_energy_added,
-        }
+        
 
-        return stats    
+        #return stats    
     import torch
 
     def _estimate_avg_max_q(self, which: str = "rep", sample_size: int = 256) -> float | None:
@@ -863,6 +870,8 @@ class Controller:
             s_t = torch.stack(
                 [torch.as_tensor(x, dtype=torch.float32, device=self.device) for x in states]
             )
+            if net is None:
+                return None
             q_all = net(s_t)  # shape: (B, n_actions)
             if q_all.shape[1] == 0:
                 return None
