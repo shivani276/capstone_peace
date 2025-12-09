@@ -83,9 +83,11 @@ class Controller:
             self.dqn_reposition_target.load_state_dict(self.dqn_reposition_main.state_dict())
             self.opt_reposition = torch.optim.Adam(self.dqn_reposition_main.parameters(), lr=1e-3)
             self.buffer_reposition = ReplayBuffer(100)
+            state_dim_nav = max(1, len(self.env.hospitals))
+            action_dim_nav = max(1, action_dim_nav)
+            #state_dim_nav = max(1, 78)
+            #action_dim_nav = 4
 
-            action_dim_nav = max(1, len(self.env.hospitals))
-            state_dim_nav = max(1, action_dim_nav)
             self.nav_step = 0
             self.nav_target_update = 500  
             self.nav_tau = 0.005          
