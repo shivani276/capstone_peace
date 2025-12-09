@@ -216,7 +216,7 @@ class MAP:
             print("[MAP] No hospitals to reset waits for.")
             return
         for hc in self.hospitals.values():
-            #hc.waitTime = math.exp(low_min + high_min/2)
+           # hc.waitTime = math.exp(13)
             rng = np.random.default_rng()
             lam = low_min + high_min / 2.0 # mean
             hc.waitTime = rng.poisson(lam) #poisson dist with mean
