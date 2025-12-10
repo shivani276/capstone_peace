@@ -17,7 +17,7 @@ from utils.Helpers import (
     W_MIN, W_MAX, E_MIN, E_MAX,H_MIN, H_MAX,
     utility_navigation, load_calls
 )
-
+from services.repositioning import RepositioningService
 from DQN import DQNetwork, ReplayBuffer
 
 DIRECTION_ORDER = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
@@ -25,20 +25,29 @@ NAV_K = 8
 
 class Controller:
     def __init__(
-        self,
-        env: MAP,
-        ticks_per_ep: int = 180,
-        seed: int = 123,
-        csv_path: str = "Data/5Years_SF_calls_latlong.csv",
-        time_col: str = "Received DtTm",
-        lat_col: Optional[str] = "Latitude",
-        lng_col: Optional[str] = "Longitude",
-        wkt_col: Optional[str] = None,
-        test_mode: bool = False,
-    ):
+            self,
+            env: MAP,
+            demand_predictor = None,
+            travel_time_matrix = None,
+            response_time_profile = None,
+            ticks_per_ep: int = 180,
+            seed: int = 123,
+            csv_path: str = "Data/5Years_SF_calls_latlong.csv",
+            time_col: str = "Received DtTm",
+            lat_col: Optional[str] = "Latitude",
+            lng_col: Optional[str] = "Longitude",
+            wkt_col: Optional[str] = None,
+            test_mode: bool = False,
+            alpha: float = 0.1
+        ):
+
         self.env = env
+        self.demand_predictor = demand_predictor
+        self.travel_time_matrix = travel_time_matrix
+        self.response_time_profile = response_time_profile
         self.test_mode = test_mode
-        print("[DEBUG] hospitals at Controller init:", len(self.env.hospitals))
+        self.repositioning_service = RepositioningService(alpha=alpha) #for the paper
+        #print("[DEBUG] hospitals at Controller init:", len(self.env.hospitals))
         self.ticks_per_ep = ticks_per_ep
         self.rng = random.Random(seed)
 
@@ -86,7 +95,7 @@ class Controller:
             action_dim_nav = max(1, len(self.env.hospitals))
             state_dim_nav = max(1, action_dim_nav)
             self.nav_step = 0
-            self.nav_target_update = 500  
+            self.nav_target_update = 15 #500  
             self.nav_tau = 0.005          
             self.dqn_navigation_main = DQNetwork(state_dim_nav, action_dim_nav).to(self.device)
             self.dqn_navigation_target = DQNetwork(state_dim_nav, action_dim_nav).to(self.device)
@@ -268,7 +277,7 @@ class Controller:
         return hid
 
     #================== REPOSITION TRAIN ======================#
-
+ 
     def _train_reposition(self, batch_size: int = 64, gamma: float = 0.99) -> None:
         if len(self.buffer_reposition) < batch_size:
             return
@@ -335,8 +344,8 @@ class Controller:
                                 self.dqn_navigation_main.parameters()):
                     p_t.data.mul_(1.0 - self.nav_tau).add_(self.nav_tau * p.data)
 
-        if self.nav_step % 500 == 0:
-            print(f"[Controller] NAV train step={self.nav_step} loss={loss.item():.4f}")
+        #if self.nav_step % 500 == 0:
+            #print(f"[Controller] NAV train step={self.nav_step} loss={loss.item():.4f}")
 
     # ---------- episode reset ----------
     def _reset_episode(self) -> None:
@@ -348,6 +357,8 @@ class Controller:
         self.env.incidents.clear()
         for g in self.env.grids.values():
             g.incidents.clear()
+
+
 
         series = pd.to_datetime(self.df[self.time_col], errors="coerce").dt.normalize().dropna()
         days = series.unique()
@@ -429,6 +440,10 @@ class Controller:
         
         for g in self.env.grids.values():
             g.imbalance = g.calculate_imbalance(self.env.evs, self.env.incidents)
+        print("Tick", t, "Grid Demands:")
+        for g_idx, g in self.env.grids.items():
+            demand = len(g.incidents)
+            print(f"  Grid {g_idx}: demand={demand}")
 
         # 2) build states and actions for IDLE EVs
         for ev in self.env.evs.values():
@@ -439,8 +454,14 @@ class Controller:
                 ev.sarns["action"] = a_gi
 
         # 3) Accept offers
-        self.env.accept_reposition_offers()
-        
+        #self.env.accept_reposition_offers()
+        # 3) Apply paper-based redeployment (centralized, imbalance-driven)
+        self.repositioning_service.accept_reposition_offers(
+            evs=self.env.evs,
+            grids=self.env.grids,
+            incidents=self.env.incidents
+        )
+
         # --- FIX: REMOVED DEBUG_DISPATCH ARGUMENT ---
         dispatches = self.env.dispatch_gridwise(beta=0.5)
         
@@ -486,10 +507,24 @@ class Controller:
             self._last_nav_actions = nav_actions
         except Exception:
             self._last_nav_actions = []
-    
+        # 3b) Move EVs whose nextGrid was set by redeployment
+        #to ensure that accepted redeployments are actually executed
+# Execute redeployment moves
+        for ev in self.env.evs.values():
+            if ev.status == "Repositioning" and ev.nextGrid is not None:
+                moved = (ev.nextGrid != ev.gridIndex)
+                if moved:
+                    print(f"[REDEPLOY] MOVE EV {ev.id}: {ev.gridIndex} → {ev.nextGrid}")
+                    self.env.move_ev_to_grid(ev.id, ev.nextGrid)
+                ev.status = "Idle"
+                ev.nextGrid = None
+
+
+
         self.env.update_after_tick(8)
         
         for ev in self.env.evs.values():
+            ''' 
             if ev.state == EvState.IDLE or ev.status == "Dispatching":
                 sr_t  = ev.sarns.get("state")
                 ar_t  = ev.sarns.get("action")
@@ -502,8 +537,8 @@ class Controller:
                 
                 if len(self.buffer_reposition) >= 1000:
                     Sr, Ar, Rr, S2r, Dr = self.buffer_reposition.sample(64, self.device)
-                
-            elif ev.state == EvState.BUSY and ev.status == "Navigation" :
+            '''  #They aren't using rl for redeployment
+            if ev.state == EvState.BUSY and ev.status == "Navigation" :
                 s_t  = ev.sarns.get("state")
                 a_t  = ev.sarns.get("action")
                 r_t  = ev.sarns.get("reward")
@@ -517,11 +552,20 @@ class Controller:
                 
                 if len(self.buffer_navigation) >= 1000:
                     Sn, An, Rn, S2n, Dn = self.buffer_navigation.sample(64, self.device)
-                
-        self._train_reposition(batch_size=64, gamma=0.99)
+        '''         
+        # Debug print statement for status and grid update of ev
+        for ev in self.env.evs.values():
+            if ev.state == EvState.IDLE:
+                print(f"[DEBUG] EV {ev.id} idle at grid {ev.gridIndex}")
+            else:
+                print(f"[DEBUG] EV {ev.id} status={ev.status} at grid {ev.gridIndex}")
+        '''
+
+        
+        #self._train_reposition(batch_size=64, gamma=0.99) - cuz no dqn
         self._train_navigation(batch_size=64, gamma=0.99)
 
-
+    
     def run_training_episode(self, episode_idx: int) -> dict:
         self._reset_episode()
 
@@ -628,7 +672,7 @@ class Controller:
         print(f"Schedule: total={self.total_today} | spawned_success={self._spawn_success}")
         print(f"Dispatch: total={total_dispatches} | unique={unique_assigned_incidents}")
         print(f"Nav Loss: {avg_ep_loss:.4f}| Repo Loss: {avg_repo_loss:.4f}")
-        print("=" * 60)
+        #print("=" * 60)
 
         stats = {
             "episode": episode_idx,
@@ -660,3 +704,5 @@ class Controller:
             if a_gi == ev.nextGrid and ev.status == "Repositioning" :
                 offers += 1
         return offers
+
+

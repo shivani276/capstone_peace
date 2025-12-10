@@ -72,7 +72,7 @@ ctrl = Controller(
     csv_path="Data/5Years_SF_calls_latlong.csv"
 )
 
-n_episodes = 500
+n_episodes = 15#500
 all_stats = []
 all_nav_loss = []
 all_repo_loss = [] # New list for repositioning
