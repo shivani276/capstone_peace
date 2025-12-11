@@ -1206,40 +1206,6 @@ class Controller:
         #n_feat = [0 if x == -1 else x for x in n]
         return n #n_feat, mask
 
-
-    #==================REPOSITION DQN STUFF=====================#
-
-    #==============State=============================#
-    '''
-    def _build_state(self, ev) -> list[float]:
-        gi = ev.gridIndex
-        g = self.env.grids[gi]
-        nbs = g.neighbours
-        n8 = self._pad_neighbors(nbs)
-
-        vec: list[float] = []
-
-        # 1) Own grid index + own imbalance  (2 features)
-        own_imb = float(g.calculate_imbalance(self.env.evs, self.env.incidents))
-        vec.append(float(gi))
-        vec.append(own_imb)
-
-        # 2) For each of 8 neighbours: (neighbour_index, neighbour_imbalance) (16 features)
-        for nb in n8:
-            if nb == -1:
-                vec.extend([0.0, 0.0])
-            else:
-                
-                imb = float(self.env.grids[nb].calculate_imbalance(self.env.evs, self.env.incidents))
-                vec.extend([float(nb), imb])
-
-        # 3) EV idle time + idle energy (2 features)
-        vec.append(float(ev.aggIdleTime))
-        vec.append(float(ev.aggIdleEnergy))
-
-        # Total length: 2 (own) + 8*2 (neighbours) + 2 (idle) = 20
-        return vec
-        '''
     
     def _build_state(self, ev) -> list[float]:
         gi = ev.gridIndex
@@ -1320,33 +1286,6 @@ class Controller:
 
         return wgs
 
-
-
-      
-   
-
-    #=========================ACTION=================================#
-    '''
-    def _select_action(self, state_vec: list[float], gi: int) -> int:
-        # 9 slots: [stay] + 8 neighbours (padded)
-        nbs = self.env.grids[gi].neighbours
-        n8= self._pad_neighbors(nbs)
-        actions = [gi] + n8
-        #mask = [1] + mask8
-
-        if self.rng.random() < self.epsilon:
-            valid = [i for i, a in enumerate(actions) if a != -1]
-            slot = self.rng.choice(valid) if valid else 0
-            return actions[slot]
-
-        s = torch.tensor(state_vec, dtype=torch.float32, device=self.device).unsqueeze(0)
-        q = self.dqn_reposition_main(s).detach().cpu().numpy().ravel()
-        for i, a in enumerate(actions):
-            if a == -1:
-                q[i] = -1e9
-        slot = int(np.argmax(q))
-        return actions[slot]
-        '''
     def _select_action(self, state_vec: list[float], gi: int) -> int:
         # In test mode we skip DQN inference and pick a random valid action
         if getattr(self, "test_mode", False):
@@ -1624,39 +1563,13 @@ class Controller:
 
             if i < n_busy_target:
                 # this EV starts BUSY with a tick-0 incident
-                '''lat, lng = t0_calls[i]
-                gi_inc = point_to_grid_index(
-                    lat,
-                    lng,
-                    self.env.lat_edges,
-                    self.env.lng_edges,
-                )
-                inc = self.env.create_incident(
-                    grid_index=gi_inc,
-                    location=(lat, lng)
-                )
-
-                inc.assignedEvId = ev.id
-                # adapt this if your EV API is different
-                ev.assign_incident(inc.id)'''
-
                 ev.set_state(EvState.BUSY)
                 ev.status = "Navigation"
                 ev.nextGrid = None
                 ev.navEtaMinutes = self.rng.uniform(0.0, self.max_wait_time_HC)
                 ev.aggIdleTime = 0.0
                 ev.aggIdleEnergy = 0.0
-                '''if self.env.hospitals:
-                    hid = self.rng.choice(list(self.env.hospitals.keys()))
-                    hc = self.env.hospitals[hid]
-                    ev.navTargetHospitalId = hid
-                    ev.navdstGrid = hc.gridIndex
-                    # initial ETA estimate (optional)
-                    eta = hc.estimate_eta_minutes(ev.location[0], ev.location[1])
-                    wait = float(getattr(hc, "waitTime", 0.0))
-                    ev.navEtaMinutes = eta + wait
 
-                used_calls.append((lat, lng))'''
             else:
                 # this EV starts IDLE with random aggregated idle metrics
                 ev.set_state(EvState.IDLE)
@@ -1675,18 +1588,6 @@ class Controller:
             ev.sarns["reward"] = 0.0
             ev.sarns["next_state"] = None
 
-        # 5) remove used tick-0 calls from the schedule so they don't spawn again
-        '''if used_calls:
-            remaining = [pt for pt in t0_calls if pt not in used_calls]
-            self._schedule[0] = remaining
-
-        # finally, log again if you want
-        total_today = 0 if not self._schedule else sum(len(v) for v in self._schedule.values())
-
-        #print(f"[Controller] _reset_episode ready: day={self._current_day.date()} incidents_today={total_today}")
-        
-        print(f"[Controller] _reset_episode ready: day={self._current_day.date()} "
-            f"incidents_today={total_today}, t0_used={len(used_calls)}")'''
 
 
     # ---------- per-tick ----------
@@ -1855,97 +1756,6 @@ class Controller:
         
         self._train_navigation(batch_size=64, gamma=0.99)
 
-                
-        # 4) Gridwise dispatch (Algorithm 2) using EVs that stayed/rejected
-
-        #dispatches = self.env.dispatch_gridwise(beta=0.5)
-
-        #dispatches = self.env.dispatch_gridwise(beta=0.5) #diff update for borrowed
-
-
-        # 5) build states and actions for IDLE EVs only
-
-
-        '''
-        # 5) Debug snapshot so you can see it running
-        todays = self._schedule.get(t, []) if self._schedule else []
-        accepted = sum(
-            1
-            for ev in self.env.evs.values()
-            if ev.state == EvState.IDLE and ev.sarns.get("reward") not in (None, 0.0)
-        )
-        print(
-            f"Tick {t:03d} | incidents+{len(todays):2d} | offers={n_offers:2d} | "
-            f"accepted={accepted:2d} | dispatched={len(dispatches):2d}"
-        )'''
-
-
-        
-        '''for g in self.env.grids.values():
-            vehicle_id = []
-            vehicle_id = g.evs
-            print("Before", vehicle_id)
-                  
-        
-
-        for g in self.env.grids.values():
-            vehicle_id = []
-            vehicle_id = g.evs
-            print("After", vehicle_id)
-        '''
-        '''
-        # 6) NAV per tick (only for dispatched EVs)
-        #    Update hospital waits, then choose hospital via DQN (action), reward = U^N, store transition.
-        self.env.tick_hospital_waits(lam=0.04, wmin=5.0, wmax=90.0)
-
-        for (eid, inc_id, _Ud) in dispatches:
-            ev = self.env.evs[eid]
-
-            # If EV already at its hospital's grid (when you implement movement), skip NAV
-            hid_prev = getattr(ev, "navTargetHospitalId", None)
-            if hid_prev is not None:
-                hc_prev = self.env.hospitals.get(hid_prev)
-                if hc_prev is not None and ev.gridIndex == hc_prev.gridIndex:
-                    continue
-
-            # Build state over candidates (patient -> hospital ETAs, hospital waits)
-            s_vec, cand_hids, mask = self._build_nav_state(inc_id)
-            if sum(mask) == 0:
-                continue  # no valid hospitals
-
-            # Epsilon-greedy action over candidates
-            slot = self._select_nav_action(s_vec, mask)
-            hid = cand_hids[slot]
-
-            # Reward = U^N for this choice
-            hc = self.env.hospitals[hid]
-            # recompute current eta & wait for the chosen one
-            hids, etas, waits = self.env.get_nav_candidates(inc_id, max_k=NAV_K)
-            j = hids.index(hid)
-            eta_ph, wait_h = etas[j], waits[j]
-            r_nav = self._compute_un(eta_ph, wait_h)
-
-            # Record on EV (not movement yet)
-            ev.navTargetHospitalId = hid
-            ev.navEtaMinutes = eta_ph
-            ev.navUtility = r_nav
-
-            # Build next-state immediately (you can also defer to next tick)
-            s2_vec, _, _ = self._build_nav_state(inc_id)
-            done = 0.0  # no terminal yet (arrival handled when you add movement)
-
-            # Push to replay
-            s_t = torch.tensor(s_vec, dtype=torch.float32)
-            a_t = torch.tensor(slot, dtype=torch.int64)
-            r_t = torch.tensor(r_nav, dtype=torch.float32)
-            s2_t = torch.tensor(s2_vec, dtype=torch.float32)
-            d_t = torch.tensor(done, dtype=torch.float32)
-            self.buffer_navigation.push(s_t, a_t, r_t, s2_t, d_t)
-
-        # Single nav training step per tick
-        self._train_navigation(batch_size=64, gamma=0.99)'''
-
-
     def run_training_episode(self, episode_idx: int) -> dict:
         self._reset_episode()
 
@@ -2101,80 +1911,7 @@ class Controller:
             "total_incidents": len(self.env.incidents),
         }
 
-        '''print(
-            f"[EP {episode_idx:03d}] avg_rep_reward={avg_rep_reward:.3f} "
-            f"moves={n_rep_moves:3d} dispatched={total_dispatched:3d} "
-            f"incidents={len(self.env.incidents):3d}"
 
-        )
-      
-        print("=== INCIDENTS STILL ACTIVE AT EPISODE END ===")
-        for inc_id, inc in self.env.incidents.items():
-            print(
-            f"ID={inc_id} status={inc.status} grid={inc.gridIndex} wait={inc.waitTime}")'''
-        
-
-
-
-
-
-        return stats
-
-    
-
-    '''def run_one_episode(self) -> None:
-        print("[Controller] Resetting episode...")
-        
-
-        self._reset_episode()
-        
-
-
-        if self._current_day is not None:
-            print(f"[Controller] Day selected: {self._current_day.date()}")
-        else:
-            print("[Controller] Warning: No day selected (dataset may be empty or invalid).")
-
-        if self._schedule:
-            total_incidents = sum(len(v) for v in self._schedule.values())
-            print(f"[Controller] Total incidents today: {total_incidents}")
-        else:
-            print("[Controller] Warning: Schedule not built — no incidents will spawn.")
-
-        # Only run 5 ticks for debugging
-        for t in range(180):
-            self._tick(t)
-
-        print(f"[Controller] Episode debug run complete. Total incidents created: {len(self.env.incidents)}")
-        '''
-    '''
-    # ---------- run one episode ----------
-    def run_one_episode(self) -> None:
-        print("[Controller] Resetting episode...")
-        self._reset_episode()
-
-        # Safe day print (avoid NoneType)
-        if self._current_day is not None:
-            print(f"[Controller] Day selected: {self._current_day.date()}")
-        else:
-            print("[Controller] Warning: No day selected (dataset may be empty or invalid).")
-
-        # Safe schedule summary
-        if self._schedule:
-            total_incidents = sum(len(v) for v in self._schedule.values())
-            print(f"[Controller] Total incidents today: {total_incidents}")
-        else:
-            print("[Controller] Warning: Schedule not built — no incidents will spawn.")
-
-
-        # Run all ticks
-        for t in range(self.ticks_per_ep):
-            self._tick(t)
-            if t % 30 == 0:
-                print(f"Tick {t:03d}: incidents so far = {len(self.env.incidents)}")
-
-        print(f"[Controller] Episode complete. Total incidents created: {len(self.env.incidents)}")
-    '''
     def _build_offers_for_idle_evs(self) -> int:
         offers = 0
         
@@ -2188,35 +1925,60 @@ class Controller:
         return offers
     
 
-    #======================NAVIGATION============================#
-
-
-    '''def _select_nav_action(self, s_vec: list[float], mask: list[int]) -> int:
-        """
-        Epsilon-greedy over NAV_K slots. Returns slot index 0..NAV_K-1.
-        Masked slots are invalid.
-        """
-        import numpy as np
-        if self.rng.random() < self.epsilon:
-            valid = [i for i, m in enumerate(mask) if m == 1]
-            return self.rng.choice(valid) if valid else 0
-
-        s = torch.tensor(s_vec, dtype=torch.float32, device=self.device).unsqueeze(0)
-        q = self.dqn_navigation_main(s).detach().cpu().numpy().ravel()
-        for i, m in enumerate(mask):
-            if m == 0:
-                q[i] = -1e9
-        return int(np.argmax(q))'''
-    
-    #========================NAV-STATE-ACTION=======================#
-
-    '''def _compute_un(self, eta_ph: float, wait_h: float) -> float:
-        # U^N per Eq. (14), using Helpers util you already added
-        from utils.Helpers import utility_navigation_un
-        # remaining slack style: larger slack ⇒ higher utility
-        W_busy = max(0.0, H_MAX - (eta_ph + wait_h))
-        return utility_navigation_un(W_busy, H_MIN, H_MAX)'''
     
 
     
     
+    def run_inspection_episode(self, episode_idx: int = 0):
+       
+        self._reset_episode()
+        
+        # 1. Trackers for "Running Totals" (Monotonic, never reset)
+        #    map: ev_id -> total_idle_minutes_so_far
+        running_idle_totals = {ev.id: 0.0 for ev in self.env.evs.values()}
+        running_energy_totals = {ev.id: 0.0 for ev in self.env.evs.values()}
+        
+        history_data = []
+
+        print(f"[Inspection] Starting Episode {episode_idx} trace...")
+
+        for t in range(self.ticks_per_ep):
+            # A. Snapshot BEFORE tick (to calculate deltas)
+            pre_tick_idle = {ev.id: ev.aggIdleTime for ev in self.env.evs.values()}
+            pre_tick_energy = {ev.id: ev.aggIdleEnergy for ev in self.env.evs.values()}
+            
+            # B. Run the Tick
+            self._tick(t)
+
+            # C. Calculate Deltas and Update Running Totals
+            for ev in self.env.evs.values():
+                # Calculate how much was added this specific tick
+                # We use the same logic as _tick: if it dropped (reset), we ignore the drop
+                current_val = ev.aggIdleTime
+                prev_val = pre_tick_idle.get(ev.id, 0.0)
+                
+                delta = current_val - prev_val
+                if delta > 0:
+                    running_idle_totals[ev.id] += delta
+                
+                # Same for energy
+                curr_e = ev.aggIdleEnergy
+                prev_e = pre_tick_energy.get(ev.id, 0.0)
+                delta_e = curr_e - prev_e
+                if delta_e > 0:
+                    running_energy_totals[ev.id] += delta_e
+
+                # D. Record Data Point
+                history_data.append({
+                    "Tick": t,
+                    "EV_ID": ev.id,
+                    "State": ev.state.name,         # IDLE / BUSY
+                    "Status": ev.status,            # "Navigation", "Dispatching", etc.
+                    "Grid": ev.gridIndex,
+                    "Current_Idle_Buffer": round(ev.aggIdleTime, 2),    # Resets to 0
+                    "Episode_Total_Idle": round(running_idle_totals[ev.id], 2), # Never resets
+                    "Episode_Total_Energy": round(running_energy_totals[ev.id], 2)
+                })
+
+        print("[Inspection] Trace complete.")
+        return pd.DataFrame(history_data)
