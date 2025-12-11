@@ -83,6 +83,10 @@ class Controller:
             self.dqn_reposition_target.load_state_dict(self.dqn_reposition_main.state_dict())
             self.opt_reposition = torch.optim.Adam(self.dqn_reposition_main.parameters(), lr=1e-3)
             self.buffer_reposition = ReplayBuffer(100)
+            state_dim_nav = max(1, len(self.env.hospitals))
+            action_dim_nav = max(1, action_dim_nav)
+            #state_dim_nav = max(1, 78)
+            #action_dim_nav = 4
 
             # --- NAV: one feature and one action per hospital grid ---
             self.hc_grids = sorted({h.gridIndex for h in self.env.hospitals.values()})
