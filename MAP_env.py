@@ -18,7 +18,7 @@ import math
 import numpy as np
 from utils.Helpers import (
     point_to_grid_index,
-    load_grid_config_2d, P_MAX,
+    load_grid_config_2d, P_MAX,H_MIN, H_MAX
 )
 
 from Entities.GRID import Grid
@@ -218,8 +218,8 @@ class MAP:
         for hc in self.hospitals.values():
             #hc.waitTime = math.exp(low_min + high_min/2)
             rng = np.random.default_rng()
-            lam = low_min + high_min / 2.0 # mean
-            hc.waitTime = rng.poisson(lam) #poisson dist with mean
+            lam = H_MIN + H_MAX / 2.0 # mean
+            hc.waitTime = rng.exponential(13) #poisson dist with mean
             #print(f"[MAP] Hospital waits initialised in [{hc.id}, {hc.waitTime}] minutes.")
 
     '''def tick_hospital_waits(self, lam: float = 0.04, wmin: float = 5.0, wmax: float = 90.0, seed: int | None = None) -> None:

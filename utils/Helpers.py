@@ -119,7 +119,7 @@ def build_daily_incident_schedule(
     If lat/lng not present, set wkt_col to parse 'POINT (lng lat)'.
     """
     tmp = df.copy()
-    tmp[time_col] = pd.to_datetime(tmp[time_col], errors="coerce")
+    tmp[time_col] = pd.to_datetime(tmp[time_col],format="%Y %b %d %I:%M:%S %p", errors="coerce")
     day_start = pd.Timestamp(day.normalize())
     day_end = day_start + pd.Timedelta(days=1)
     tmp = tmp[(tmp[time_col] >= day_start) & (tmp[time_col] < day_end)]

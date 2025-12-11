@@ -31,9 +31,9 @@ class Controller:
         seed: int = 123,
         csv_path: str = "Data/5Years_SF_calls_latlong.csv",
         time_col: str = "Received DtTm",
-        lat_col: Optional[str] = "Latitude",
-        lng_col: Optional[str] = "Longitude",
-        wkt_col: Optional[str] = None,
+        lat_col: Optional[str] = None,
+        lng_col: Optional[str] = None,
+        wkt_col: Optional[str] = "case_location",
         test_mode: bool = False,
         #test_mode: bool = False,
     ):
@@ -84,13 +84,21 @@ class Controller:
             self.opt_reposition = torch.optim.Adam(self.dqn_reposition_main.parameters(), lr=1e-3)
             self.buffer_reposition = ReplayBuffer(100)
 
-            action_dim_nav = max(1, len(self.env.hospitals))
-            state_dim_nav = max(1, action_dim_nav)
+            # --- NAV: one feature and one action per hospital grid ---
+            self.hc_grids = sorted({h.gridIndex for h in self.env.hospitals.values()})
+            nav_action_dim = len(self.hc_grids)
+
+            if nav_action_dim == 0:
+                # degenerate case, but keep network alive
+                self.hc_grids = [0]
+                nav_action_dim = 1
+
+            state_dim_nav = nav_action_dim
             self.nav_step = 0
             self.nav_target_update = 500  
             self.nav_tau = 0.005          
-            self.dqn_navigation_main = DQNetwork(state_dim_nav, action_dim_nav).to(self.device)
-            self.dqn_navigation_target = DQNetwork(state_dim_nav, action_dim_nav).to(self.device)
+            self.dqn_navigation_main = DQNetwork(state_dim_nav, nav_action_dim).to(self.device)
+            self.dqn_navigation_target = DQNetwork(state_dim_nav, nav_action_dim).to(self.device)
             self.dqn_navigation_target.load_state_dict(self.dqn_navigation_main.state_dict())
             self.opt_navigation = torch.optim.Adam(self.dqn_navigation_main.parameters(), lr=1e-3)
             self.buffer_navigation = ReplayBuffer(100)
@@ -205,16 +213,13 @@ class Controller:
         return vec
     
     def build_state_nav1(self, ev):
-
-    # 1) Collect all grid indices that have at least one hospital
-        hc_grids = sorted({h.gridIndex for h in self.env.hospitals.values()})
+        # 1) Use precomputed hospital grids
+        hc_grids = getattr(self, "hc_grids", None)
+        if not hc_grids:
+            return [], []
 
         state_vec: list[float] = []
-        grid_ids:  list[int]   = []
-
-        # If there are no hospitals at all, return empty lists
-        if not hc_grids:
-            return state_vec, grid_ids
+        grid_ids:  list[int]   = list(hc_grids)
 
         # 2) Pre-compute mean wait time per HC-grid
         grid_mean_wait = {}
@@ -231,21 +236,19 @@ class Controller:
             else:
                 grid_mean_wait[g_idx] = 0.0
 
-        # 3) Build feature per HC-grid
+        # 3) Build feature per HC-grid: eta(ev → grid) + mean_wait(grid)
         ev_lat, ev_lng = ev.location
 
         for g_idx in hc_grids:
-            # pick any hospital in this grid to approximate ETA to the grid
+
             hs_in_grid = [h for h in self.env.hospitals.values()
-                        if h.gridIndex == g_idx]
+                          if h.gridIndex == g_idx]
             if not hs_in_grid:
-                # should not happen because we built hc_grids from hospitals,
-                # but be defensive
+                state_vec.append(0.0)
                 continue
 
             h0 = hs_in_grid[0]
 
-            # ETA from EV to this grid (via representative hospital)
             try:
                 eta = float(h0.estimate_eta_minutes(ev_lat, ev_lng))
             except Exception:
@@ -255,11 +258,10 @@ class Controller:
             feature = eta + mean_wait
 
             state_vec.append(feature)
-            grid_ids.append(g_idx)
+
 
         return state_vec, grid_ids
 
-    
     '''def build_state_nav(self, ev) -> list[float]:
         gi = ev.gridIndex
         h_list = self.env.hospitals
@@ -484,7 +486,12 @@ class Controller:
         for g in self.env.grids.values():
             g.incidents.clear()
 
-        series = pd.to_datetime(self.df[self.time_col], errors="coerce").dt.normalize().dropna()
+        series = pd.to_datetime(
+            self.df[self.time_col],
+            format="%Y %b %d %I:%M:%S %p",
+            errors="coerce"
+            ).dt.normalize().dropna()
+
         days = series.unique()
         if len(days) == 0:
             raise RuntimeError(f"No valid dates in dataset for {self.time_col}")
@@ -669,7 +676,9 @@ class Controller:
                 s_t  = ev.sarns.get("state")
                 a_t  = ev.sarns.get("action")
                 r_t  = ev.sarns.get("reward")
-                wits = self.build_state_nav1(ev)
+                wits,_ = self.build_state_nav1(ev)
+                if s_t is None or a_t is None or r_t is None:
+                    continue
                 st_2_n = wits
                 done_t = bool(1)
                 s_t = torch.as_tensor(s_t, dtype=torch.float32, device=self.device).view(-1)
