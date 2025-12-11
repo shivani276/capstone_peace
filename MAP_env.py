@@ -62,7 +62,7 @@ class MAP:
 
         # Initialize services
         self.dispatcher = DispatcherService()
-        self.repositioner = RepositioningService()
+        self.repositioner = RepositioningService(self)
         self.navigator = NavigationService()
 
         # Build grid topology

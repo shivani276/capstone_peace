@@ -46,8 +46,10 @@ class Controller:
         self.travel_time_matrix = travel_time_matrix
         self.response_time_profile = response_time_profile
         self.test_mode = test_mode
-        self.repositioning_service = RepositioningService(alpha=alpha) #for the paper
-        #print("[DEBUG] hospitals at Controller init:", len(self.env.hospitals))
+        #self.repositioning_service = RepositioningService(alpha=alpha) #for the paper
+        self.repositioning_service = RepositioningService(self.env)
+
+        print("[DEBUG] hospitals at Controller init:", len(self.env.hospitals))
         self.ticks_per_ep = ticks_per_ep
         self.rng = random.Random(seed)
 
@@ -95,7 +97,7 @@ class Controller:
             action_dim_nav = max(1, len(self.env.hospitals))
             state_dim_nav = max(1, action_dim_nav)
             self.nav_step = 0
-            self.nav_target_update = 15 #500  
+            self.nav_target_update = 500 #500  
             self.nav_tau = 0.005          
             self.dqn_navigation_main = DQNetwork(state_dim_nav, action_dim_nav).to(self.device)
             self.dqn_navigation_target = DQNetwork(state_dim_nav, action_dim_nav).to(self.device)
@@ -116,11 +118,7 @@ class Controller:
         self.time_col = time_col
         self.lat_col = lat_col
         self.lng_col = lng_col
-        self.wkt_col = wkt_col
-
-       
-
-
+        self.wkt_col = wkt_col 
         self._schedule = None
         self._current_day = None
 
@@ -132,7 +130,7 @@ class Controller:
         self._spawn_success = 0
         self.pretty = True
         self.debug_dispatch = False
-
+        self.repositioning_service.build_predicted_demand(self.df, self.env)
     
     def _get_direction_neighbors_for_index(self, index: int) -> list[int]:
         n_rows = len(self.env.lat_edges) - 1
@@ -344,8 +342,8 @@ class Controller:
                                 self.dqn_navigation_main.parameters()):
                     p_t.data.mul_(1.0 - self.nav_tau).add_(self.nav_tau * p.data)
 
-        #if self.nav_step % 500 == 0:
-            #print(f"[Controller] NAV train step={self.nav_step} loss={loss.item():.4f}")
+        if self.nav_step % 500 == 0:
+            print(f"[Controller] NAV train step={self.nav_step} loss={loss.item():.4f}")
 
     # ---------- episode reset ----------
     def _reset_episode(self) -> None:
@@ -440,10 +438,12 @@ class Controller:
         
         for g in self.env.grids.values():
             g.imbalance = g.calculate_imbalance(self.env.evs, self.env.incidents)
-        print("Tick", t, "Grid Demands:")
-        for g_idx, g in self.env.grids.items():
-            demand = len(g.incidents)
-            print(f"  Grid {g_idx}: demand={demand}")
+        #print("Tick", t, "Grid Demands:")
+        # compute mean demand for this tick
+        demands = [len(g.incidents) for g in self.env.grids.values()]
+        self.mean_demand = sum(demands) / len(demands)
+
+            #print(f"  Grid {g_idx}: demand={demand}")
 
         # 2) build states and actions for IDLE EVs
         for ev in self.env.evs.values():
@@ -455,12 +455,15 @@ class Controller:
 
         # 3) Accept offers
         #self.env.accept_reposition_offers()
-        # 3) Apply paper-based redeployment (centralized, imbalance-driven)
-        self.repositioning_service.accept_reposition_offers(
-            evs=self.env.evs,
-            grids=self.env.grids,
-            incidents=self.env.incidents
-        )
+        # 3) Apply paper's urgency-based redeployment (stage1+stage2)
+        self.repositioning_service.urgency_based_redeployment(
+        evs=self.env.evs,
+        grids=self.env.grids,
+        incidents=self.env.incidents,
+        mean_demand=self.mean_demand
+    )
+
+
 
         # --- FIX: REMOVED DEBUG_DISPATCH ARGUMENT ---
         dispatches = self.env.dispatch_gridwise(beta=0.5)
@@ -516,6 +519,7 @@ class Controller:
                 if moved:
                     print(f"[REDEPLOY] MOVE EV {ev.id}: {ev.gridIndex} → {ev.nextGrid}")
                     self.env.move_ev_to_grid(ev.id, ev.nextGrid)
+                    ev.sarns["just_redeployed"] = True
                 ev.status = "Idle"
                 ev.nextGrid = None
 
@@ -560,8 +564,43 @@ class Controller:
             else:
                 print(f"[DEBUG] EV {ev.id} status={ev.status} at grid {ev.gridIndex}")
         '''
+# ===== DEBUG BLOCK: FULL TICK INFO =====
+        print("\n=== DEBUG TICK", t, "===")
+        # 1) Mean demand (already printed above)
+        print(f"Tick {t}: Mean Demand Across Grids = {self.mean_demand:.3f}")
+        # 2) Demand of ALL grids
+        print("Grid Demands:")
+        for g_idx, g in self.env.grids.items():
+            print(f"  Grid {g_idx}: demand={len(g.incidents)}")
 
-        
+        # 3) Identify AS grids (demand > mean demand)
+        as_grids = [g_idx for g_idx, g in self.env.grids.items()
+                    if len(g.incidents) > self.mean_demand]
+        print("AS grids this tick:", as_grids)
+
+        # 4) Urgency of ALL AS grids
+        print("Urgency of AS grids:")
+        for g_idx in as_grids:
+            ui = self.repositioning_service.calculate_grid_urgency(
+            grid_id=g_idx,
+            grids=self.env.grids,
+            df=self.df
+        )
+
+            print(f"  Grid {g_idx}: urgency={ui:.3f}")
+
+        # 5) EV redeployment movements (after moves)
+        print("EV Redeployments this tick:")
+        for ev in self.env.evs.values():
+            if ev.status == "Idle" and ev.sarns.get("just_redeployed", False):
+                print(f"  EV {ev.id} moved to Grid {ev.gridIndex}")
+
+        # 6) Status of ALL EVs
+        print("EV Status Summary:")
+        for ev in self.env.evs.values():
+            print(f"  EV {ev.id}: state={ev.state.name}, status={ev.status}, grid={ev.gridIndex}")
+
+        print("=== END DEBUG ===\n")    
         #self._train_reposition(batch_size=64, gamma=0.99) - cuz no dqn
         self._train_navigation(batch_size=64, gamma=0.99)
 
@@ -602,6 +641,7 @@ class Controller:
                 n = len(tick_dispatches)
                 sample = tick_dispatches[:3]
                 print(f"Tick {t:03d}: dispatches={n} sample={sample}")
+            
 
             for ev in self.env.evs.values():
                 r = ev.sarns.get("reward")
@@ -672,7 +712,7 @@ class Controller:
         print(f"Schedule: total={self.total_today} | spawned_success={self._spawn_success}")
         print(f"Dispatch: total={total_dispatches} | unique={unique_assigned_incidents}")
         print(f"Nav Loss: {avg_ep_loss:.4f}| Repo Loss: {avg_repo_loss:.4f}")
-        #print("=" * 60)
+        print("=" * 60)
 
         stats = {
             "episode": episode_idx,
