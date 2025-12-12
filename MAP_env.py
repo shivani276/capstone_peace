@@ -383,25 +383,14 @@ class MAP:
                 self.move_ev_to_grid(ev.id,ev.nextGrid)
 
             # 1) EV staying idle in its chosen grid
-            if ev.state == EvState.IDLE and ev.gridIndex == ev.sarns.get("action"):
-                ev.add_idle(8)
-
-            # 2) EV has been dispatched but no reward yet: move it to patient's grid
-            elif ev.status == "Dispatching" and ev.assignedPatientId is not None:
-                ev.state = EvState.BUSY
-                #dispatched += 1
-                #print("changed the status after dispatch for the EV", ev.id)
-                #inc = self.incidents.get(ev.assignedPatientId)
-        
-            # 3) Accepted reposition: execute energy/time cost + move
-            elif ev.status == "Repositioning" and ev.sarns.get("reward") is not None:
-                ev.execute_reposition()
-
-                # optional: reset status after move
-                # ev.status = "available"
-                # ev.nextGrid = None
-
-            elif ev.state == EvState.BUSY:
+            if ev.state == EvState.IDLE:
+                if ev.gridIndex == ev.sarns.get("action"):
+                    ev.add_idle(8)
+                elif ev.status == "Repositioning" and ev.sarns.get("reward") is not None:
+                    ev.execute_reposition()
+                elif ev.status == "Dispatching" and ev.assignedPatientId is not None:
+                    ev.state = EvState.BUSY
+            else:
                 ev.add_busy(8)
 
                 '''
