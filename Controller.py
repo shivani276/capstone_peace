@@ -564,7 +564,7 @@ class Controller:
             else:
                 print(f"[DEBUG] EV {ev.id} status={ev.status} at grid {ev.gridIndex}")
         '''
-# ===== DEBUG BLOCK: FULL TICK INFO =====
+# Debug block ------------------------------------------------------------------------>
         print("\n=== DEBUG TICK", t, "===")
         # 1) Mean demand (already printed above)
         print(f"Tick {t}: Mean Demand Across Grids = {self.mean_demand:.3f}")
@@ -615,7 +615,7 @@ class Controller:
         all_dispatches = []
         all_nav_actions = []
         per_tick_dispatch_counts = []
-
+    
         for t in range(self.ticks_per_ep):
             self._tick(t)
             tick_dispatches = getattr(self, "_last_dispatches", []) or []
@@ -744,5 +744,3 @@ class Controller:
             if a_gi == ev.nextGrid and ev.status == "Repositioning" :
                 offers += 1
         return offers
-
-
