@@ -417,6 +417,9 @@ class MAP:
                             )
                             priority = getattr(inc, 'priority', 1)
                             best_hospital.start_service(ev_id=ev.id, priority=priority)
+                            
+                            # Set nav wait time to the calculated wait for this hospital
+                            ev.navWaitTime = self.calculate_eta_plus_wait(ev, best_hospital)
                         
                         # Clear ETA (no longer traveling, now servicing)
                         ev.navEtaMinutes = 0.0
