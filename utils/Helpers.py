@@ -113,7 +113,7 @@ def build_daily_incident_schedule(
     lat_col: str | None = "Latitude",
     lng_col: str | None = "Longitude",
     wkt_col: str | None = None,
-) -> Dict[int, List[Tuple[float, float]]]:
+) -> Dict[int, List[Tuple[pd.Timestamp, float, float]]]:
     """
     Returns {tick: [(lat,lng), ...], ...} for a single calendar day in df.
     If lat/lng not present, set wkt_col to parse 'POINT (lng lat)'.
@@ -140,10 +140,10 @@ def build_daily_incident_schedule(
     else:
         return {}
 
-    schedule: Dict[int, List[Tuple[float, float]]] = {i: [] for i in range(180)}
+    schedule: Dict[int, List[Tuple[pd.Timestamp, float, float]]] = {i: [] for i in range(180)}
     for ts, lat, lng in coords:
         t = to_tick_index(ts)
-        schedule[t].append((lat, lng))
+        schedule[t].append((ts, lat, lng))
     return schedule
 
 # -----------------------------

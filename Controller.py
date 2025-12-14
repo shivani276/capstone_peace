@@ -552,16 +552,18 @@ class Controller:
             ev.sarns["next_state"] = None
 
     # ---------- per-tick ----------
-    def _spawn_incidents_for_tick(self, t: int) -> None:
+    def _spawn_incidents_for_tick(self, t: int):
         todays_at_tick = self._schedule.get(t, []) if self._schedule else []
-        for (lat, lng) in todays_at_tick:
+        for (ts,lat, lng) in todays_at_tick:
             self._spawn_attempts +=1
             gi = point_to_grid_index(lat, lng, self.env.lat_edges, self.env.lng_edges)
             if gi is None or gi < 0:
                 continue
-            inc = self.env.create_incident(grid_index=gi, location=(lat, lng), priority="MED")
+            ts_py = ts.to_pydatetime() if hasattr(ts, "to_pydatetime") else ts
+            inc = self.env.create_incident(grid_index=gi, location=(lat, lng),timestamp=ts_py)
             try:
                 self._spawned_incidents[inc.id] = inc
+                #print(f"incident stats",inc.to_dict)
             except Exception:
                 pass
             self._spawn_success +=1
@@ -689,7 +691,7 @@ class Controller:
                 st_2_n = torch.as_tensor(st_2_n, dtype=torch.float32, device=self.device).view(-1)
                
                 self.buffer_navigation.push(s_t, a_t, r_t, st_2_n, done_t)
-                print("Navigation transition pushed:", s_t, a_t, r_t, st_2_n, done_t)
+                #print("Navigation transition pushed:", s_t, a_t, r_t, st_2_n, done_t)
                 
                 if len(self.buffer_navigation) >= 1000:
                     Sn, An, Rn, S2n, Dn = self.buffer_navigation.sample(64, self.device)

@@ -120,7 +120,7 @@ class MAP:
             g.evs.clear()
 
         rng = random.Random(seed)
-        n_evs = 11
+        n_evs = 27
         all_idx = list(self.grids.keys())
 
         for _ in range(n_evs):
@@ -147,15 +147,17 @@ class MAP:
 
     # ========== INCIDENT MANAGEMENT ==========
     
-    def create_incident(self, grid_index: int, location: Tuple[float, float], priority: str = "MED") -> Incident:
+    def create_incident(self, grid_index: int, location: Tuple[float, float], timestamp: Optional[datetime] = None,) -> Incident:
         """Create a new incident and place it in a grid."""
         self._incidentCounter += 1
+
+        if timestamp is None:
+            timestamp = datetime.now()
         inc = Incident(
             id=self._incidentCounter,
             gridIndex=grid_index,
-            timestamp=datetime.now(),
-            location=location,
-            priority=Priority[priority],
+            timestamp=timestamp,
+            location=location
         )
         self.incidents[inc.id] = inc
         self.grids[grid_index].add_incident(inc.id)
@@ -383,29 +385,36 @@ class MAP:
                 self.move_ev_to_grid(ev.id,ev.nextGrid)
 
             # 1) EV staying idle in its chosen grid
-            if ev.state == EvState.IDLE and ev.gridIndex == ev.sarns.get("action"):
-                ev.add_idle(8)
+            if ev.state == EvState.IDLE: 
+                if ev.gridIndex == ev.sarns.get("action"):
+                    ev.add_idle(8,ev.aggIdleTime)
+                if ev.status == "Repositioning" and ev.sarns.get("reward") is not None:
+                    ev.execute_reposition()
+                if ev.status == "Dispatching" and ev.assignedPatientId is not None:
+                    ev.state = EvState.BUSY
+
+            elif ev.state == EvState.BUSY:
+                ev.add_busy(8)  
 
             # 2) EV has been dispatched but no reward yet: move it to patient's grid
-            elif ev.status == "Dispatching" and ev.assignedPatientId is not None:
-                ev.state = EvState.BUSY
+            '''elif ev.status == "Dispatching" and ev.assignedPatientId is not None:
+                ev.state = EvState.BUSY'''
                 #dispatched += 1
                 #print("changed the status after dispatch for the EV", ev.id)
                 #inc = self.incidents.get(ev.assignedPatientId)
         
             # 3) Accepted reposition: execute energy/time cost + move
-            elif ev.status == "Repositioning" and ev.sarns.get("reward") is not None:
-                ev.execute_reposition()
+            '''elif ev.status == "Repositioning" and ev.sarns.get("reward") is not None:
+                ev.execute_reposition()'''
 
                 # optional: reset status after move
                 # ev.status = "available"
                 # ev.nextGrid = None
 
-            elif ev.state == EvState.BUSY:
-                ev.add_busy(8)
+            
 
-                '''
-                hc_id = ev.navTargetHospitalId
+                
+            '''hc_id = ev.navTargetHospitalId
                 if hc_id is not None:
                     hospital = self.hospitals.get(hc_id)
                     if hospital is not None and getattr(hospital, "gridIndex", None) is not None:
