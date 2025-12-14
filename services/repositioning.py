@@ -36,46 +36,48 @@ class RepositioningService:
                 print(f"[Check] EV {v.id} repositioning → Grid {g_idx} | demand={grid_demand} | mean={mean_demand}")
                 v.sarns["reward"] = u
 ''' 
-
 # services/repositioning.py
 """
-Urgency-based centralized redeployment for ambulance repositioning.
-Implements: 
-    - Historical demand estimation per grid
+This paper does urgency-based redeployment for ambulance repositioning.
+What the below code should do ->  
+    - Historical demand estimation per grid <why>
     - Grid urgency calculation
     - Redeployment of idle EVs to urgent grids using distance matching
 """
-
+#all imports
 from typing import Dict, List, Tuple
 import math
 
 from Entities.ev import EV, EvState
-from utils.Helpers import utility_repositioning, point_to_grid_index
-from MAP_env import Grid
+from utils.Helpers import utility_repositioning, point_to_grid_index #our utility fn (not using it tho), mapping (lat,lon) to grid index
+from MAP_env import Grid # Need grid cuz AS are grids
 
 
-class RepositioningService:
+class RepositioningService: #centralisaed repostioining 'controller' - paper says the same
     def __init__(self, env):
 
         self.env = env
-        self.estimated_demand = {}      # built from historical data
-        self.last_urgencies = {}        # for debugging
+        self.estimated_demand = {}      # for historical calls per grid - paper considers it, but in a different way < so chk this out
+        #need to find future demand nd kambda vakues ssomehow 
+        self.last_urgencies = {}        # for debugging part
 
     # HISTORICAL DEMAND CALCULATION (from dataset)
     def build_predicted_demand(self, df, env):
-        #Build historical demand for each grid using the dataset df.
+        #Build historical demand for each grid using the dataset 
         #Stores result in self.estimated_demand.
         self.estimated_demand = {g: 0 for g in env.grids.keys()}
 
-        for _, row in df.iterrows():
+        for _, row in df.iterrows(): #iterate thru full datatset 
             lat = row.get("Latitude")
             lng = row.get("Longitude")
             if lat is None or lng is None:
                 continue
 
-            gidx = point_to_grid_index(lat, lng, env.lat_edges, env.lng_edges)
+            gidx = point_to_grid_index(lat, lng, env.lat_edges, env.lng_edges) #map and get the grid indices 
             if gidx is not None and gidx >= 0:
-                self.estimated_demand[gidx] += 1
+                self.estimated_demand[gidx] += 1 #counter incrementation 
+                #Bascally total historical calls in grid gidx
+
             #print("Predicted demand per grid after loading historical data:")
             #print(self.estimated_demand)
 
@@ -86,9 +88,9 @@ class RepositioningService:
 
         predicted = self.estimated_demand.get(grid_id, 0)
         geo_factor = 1.0                   # extend later if needed
-        current_evs = len(g.evs)
+        current_evs = len(g.evs) #evs in grid (=> AS)
 
-        ui = (predicted * geo_factor) / (current_evs + 1)
+        ui = (predicted * geo_factor) / (current_evs + 1) #Urgency index calc
 
         return float(ui)
 
@@ -118,7 +120,7 @@ class RepositioningService:
             - Sort by urgency
             - Assign nearest idle EVs to most urgent grids
         """
-        # Identify AS grids
+        # Identify AS grids as grids whose demand > mean_Demand
         as_grids = [g_idx for g_idx, g in grids.items()
                     if len(g.incidents) > mean_demand]
 
@@ -134,13 +136,13 @@ class RepositioningService:
         # Save for debug
         self.last_urgencies = urgencies
 
-        # Sort by urgency (descending ⇒ highest need first)
+        # Sort by urgency (descending since highest need first)
         urgent_sorted = sorted(as_grids, key=lambda x: urgencies[x], reverse=True)
 
         # Stage-1: Determine demand (how many EVs they need)
         grid_capacities = {}
         for g_idx in urgent_sorted:
-            cap = max(0, grids[g_idx].imbalance)
+            cap = max(0, grids[g_idx].imbalance) #imbalance used to calculate capacity but paper used Ambulance redeployment score  
             grid_capacities[g_idx] = cap
 
         # Collect IDLE EVs
@@ -151,7 +153,7 @@ class RepositioningService:
             return
 
 
-        # Stage-2: For each AS grid, pick nearest idle EVs
+        # Stage-2: For each AS grid, pick nearest idle EVs - this is a greedy approach tho, paper does something else 
         for g_id in urgent_sorted:
             cap = grid_capacities[g_id]
             if cap == 0:
@@ -162,7 +164,7 @@ class RepositioningService:
 
             # Assign closest EVs
             assigned = idle_evs[:cap]
-
+#NOT RL BASED REWARD SHOULDN'T BE THEREEEEEE
             for ev in assigned:
                 u = utility_repositioning(ev.aggIdleTime, ev.aggIdleEnergy)
 
