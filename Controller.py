@@ -41,6 +41,8 @@ class Controller:
         self.test_mode = test_mode
         #print("[DEBUG] hospitals at Controller init:", len(self.env.hospitals))
         self.ticks_per_ep = ticks_per_ep
+        self.dqn_rep_test = None
+        self.dqn_nav_test = None
         self.rng = random.Random(seed)
 
         # agent params
@@ -70,7 +72,7 @@ class Controller:
             self.dqn_reposition_target = None
             self.opt_reposition = None
             self.buffer_reposition = DummyBuffer()
-
+            
             self.dqn_navigation_main = None
             self.dqn_navigation_target = None
             self.opt_navigation = None
@@ -623,6 +625,7 @@ class Controller:
                     ev.nextGrid = self.env.next_grid_towards(ev.gridIndex, h.gridIndex)
                     ev.navTargetHospitalId = h.id
                     ev.navdstGrid = h.gridIndex
+                    
                     ev.status = "Navigation"
 
                     if h.waitTime is not None:
@@ -640,6 +643,8 @@ class Controller:
 
 
             # snapshot idle/energy before env update
+        
+        
         idle_before = {ev.id: ev.aggIdleTime for ev in self.env.evs.values()}
         energy_before = {ev.id: ev.aggIdleEnergy for ev in self.env.evs.values()}
         #print("called the update function")
@@ -696,10 +701,15 @@ class Controller:
                 
                 if len(self.buffer_navigation) >= 1000:
                     Sn, An, Rn, S2n, Dn = self.buffer_navigation.sample(64, self.device)
-                
+        emv = self.env.evs[1]
+        emv2 = self.env.evs[2]
+        #print("for ev number metric list ",emv.id,"is",emv.metric)
+        #print("for ev number metric list ",emv2.id,"is",emv2.metric)
+        #print("for ev nummber",emv.id,"idle time is",emv.aggIdleTime)  
+        #print("for ev nummber",emv2.id,"idle time is",emv2.aggIdleTime)
         self._train_reposition(batch_size=64, gamma=0.99)
         self._train_navigation(batch_size=64, gamma=0.99)
-
+        
         '''print("EV state distribution:",
         sum(ev.state == EvState.IDLE for ev in self.env.evs.values()), "idle,",
         sum(ev.status == "Dispatching" for ev in self.env.evs.values()), "dispatching,",
@@ -961,7 +971,9 @@ class Controller:
             
             self.slot_idle_time = []
             self.slot_idle_energy = []
-            self.list_metrics = {}
+            self.list_metrics = {} #dict of evids and idle times
+            
+
             # 1) spawn incidents for testing 
             self._spawn_incidents_for_tick(t)
            #self.env.tick_hospital_waits()
@@ -979,11 +991,8 @@ class Controller:
                     ev.sarns["action"] = a_gi
                     idle_time = ev.aggIdleTime
                     #print("idle time collected", idle_time)
-                    
-                    
-
-                    
                     ev.metric.append(idle_time)
+                    self.list_metrics[ev.id] = ev.metric
                     #print("in time slot metric appended", ev.id, ev.metric)
                     
                     
@@ -991,6 +1000,7 @@ class Controller:
                     self.slot_idle_time.append(idle_time)
                     idle_energy = ev.aggIdleEnergy
                     self.slot_idle_energy.append(idle_energy)
+                
 
             # 3) Accept offers
             self.env.accept_reposition_offers()
@@ -1048,8 +1058,7 @@ class Controller:
             self.slot_idle_time_avg = sum(self.slot_idle_time)/len(self.slot_idle_time) if self.slot_idle_time else 0.0
             self.slot_idle_energy_avg = sum(self.slot_idle_energy)/len(self.slot_idle_energy) if self.slot_idle_energy else 0.0
             stats = {"slot idle time": self.slot_idle_time_avg, "slot idle energy": self.slot_idle_energy_avg, "list metrics": self.list_metrics}
-            for ev in self.env.evs.values():
-                self.list_metrics[ev.id] = ev.metric
+         
                 #print("in time slot metric added")
                 #print("key vlaue pair in test",self.list_metrics.keys,self.list_metrics.values)
                 #print("check", self.list_metrics[ev.id],ev.id)
@@ -1072,7 +1081,7 @@ class Controller:
                 #print("ev id ", evid," metric list", metric_list[evid])
                 avg = sum(metric_list[evid])/len(metric_list[evid]) if metric_list[evid] else 0.0
                 self.list_metrics[evid] = (avg)
-                #print("calculated avg idle time for ev", evid, "is", avg)
+                print("calculated avg idle time for ev", evid, "is", avg)
                          
            #dict ev.id: ev.idletime
             tick_dispatches = getattr(self, "_last_dispatches", []) or []
