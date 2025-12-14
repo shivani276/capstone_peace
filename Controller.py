@@ -613,7 +613,7 @@ class Controller:
                 slo = self._select_nav_action(state_vec)
                 #print("navigation actions", a_gi)
                 ev.sarns["action"] = slo
-                dest_grid = grid_ids[slo]
+                '''dest_grid = grid_ids[slo]
                 candidate_hs = [
                 h for h in self.env.hospitals.values()
                 if h.gridIndex == dest_grid
@@ -634,14 +634,16 @@ class Controller:
                         w_busy = eta + h.waitTime
                         ev.navEtaMinutes = w_busy
                         ev.sarns["reward"] = utility_navigation(w_busy)
-                        #print("reward for navigation", ev.sarns["reward"])
-                        '''print(
+                        #print("reward for navigation", ev.sarns["reward"])'''
+                
+                '''print(
                         f"[NAV-DEBUG] ev={ev.id} "
                         f"slot={slo} dest_grid={dest_grid} "
                         f"navTargetHospitalId={ev.navTargetHospitalId} "
                         f"nextGrid={ev.nextGrid} navdstGrid={ev.navdstGrid} "
                         f"w_busy={w_busy:.2f}"
                         )'''
+                
 
 
             # snapshot idle/energy before env update
