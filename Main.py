@@ -57,7 +57,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from MAP_env import MAP
 from Controller import Controller
-
+import torch
 # Initialize Environment
 env = MAP("Data/grid_config_2d.json")
 env.init_evs()
@@ -72,8 +72,8 @@ ctrl = Controller(
     #csv_path="D:\\Downloads\\5Years_SF_calls_latlong.csv"
     csv_path="Data/5Years_SF_calls_latlong.csv"
 )
-print("initialized evs", ctrl.env)
-n_episodes = 100
+#print("initialized evs", ctrl.env)
+n_episodes = 300
 n_tests = 1
 all_stats = []
 all_nav_loss = []
@@ -106,7 +106,12 @@ for ep in range(1, n_episodes + 1):
 
 # === NEW PLOTTING SECTION ===
 
-
+trained_nav = ctrl.dqn_navigation_main 
+trained_rep = ctrl.dqn_reposition_main 
+# after 500 training episodes
+torch.save(trained_nav.state_dict(), "Entities/pained_nav.pth")
+torch.save(trained_rep.state_dict(), "Entities/pained_rep.pth")
+print("---------TRAINED DQNS ARE SAVED IN ENTITIES----------")
 for ep in range(0,n_tests):
     print("Test Slot:", ep+1)
     test_stats = ctrl.run_test_episode(ep)
@@ -114,6 +119,8 @@ for ep in range(0,n_tests):
     #slot_ienergy = test_stats["slot idle energy"]
     #list_metrics = test_stats["list metrics"]
     slot_itime = test_stats["average episodic idle times"]
+    ids = list(slot_itime.keys())
+    avg_vals = list(slot_itime.values())
     #print("idle time episodic", slot_itime)
     #for evid in list_metrics:
         #avg_list_metric = sum(list_metrics[evid])/len(list_metrics[evid])
@@ -123,7 +130,7 @@ for ep in range(0,n_tests):
     #test_idlet.append(slot_itime)
     #test_idlee.append(slot_ienergy)
     
-plt.plot(test_idlet)
+'''plt.plot(test_idlet)
 plt.ylabel("average idle time")
 plt.xlabel("test slots")
 plt.title("Idle time over test slots")
@@ -134,30 +141,19 @@ plt.ylabel("average idle energy")
 plt.xlabel("test slots")
 plt.title("Idle energy over test slots")
 plt.grid(True)
-plt.show()
+plt.show()'''
 
 
 # Extract keys and values id: avg_val
 #ids = list(average_i_veh.keys())
 #avg_vals = list(average_i_veh.values())
-ids = list(slot_itime.keys())
-avg_vals = list(slot_itime.values())
-print("ids",type(ids[0]))
-print("avg_vals",avg_vals)
+
+#print("ids",type(ids[0]))
+#print("avg_vals",avg_vals)
 
 
 
-plt.figure(figsize=(12, 6))
 
-plt.bar(ids, avg_vals)
-
-plt.xlabel("ID")
-plt.ylabel("Average Value")
-plt.title("Average Metric per ID")
-
-plt.xticks(rotation=45)   # rotate if IDs are long
-plt.tight_layout()
-plt.show()
 '''plt.figure(figsize=(10, 8)) # Make the figure taller
 
 # Plot 1: Navigation Loss
