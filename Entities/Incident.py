@@ -32,7 +32,7 @@ class Incident:
     timestamp: datetime
     location: LatLng
     dropLocation: Optional[LatLng] = None
-    priority: Priority = Priority.MED
+    priority: int = 1
     status: IncidentStatus = IncidentStatus.UNASSIGNED
     waitTime: float = 0.0
     serviceTime: float = 0.0
@@ -79,10 +79,9 @@ class Incident:
         Higher priority and longer waits = higher urgency.
         """
         priority_weight = {
-            Priority.LOW: 1.0,
-            Priority.MED: 2.0,
-            Priority.HIGH: 3.0,
-            Priority.CRIT: 4.0,
+            1: 1.0,  # LOW
+            2: 2.0,  # MED
+            3: 3.0,  # HIGH
         }
         return priority_weight.get(self.priority, 1.0) * (1.0 + self.waitTime / 30.0)
 
@@ -93,7 +92,7 @@ class Incident:
             "timestamp": self.timestamp.isoformat(),
             "location": self.location,
             "dropLocation": self.dropLocation,
-            "priority": self.priority.name,
+            "priority": self.priority,
             "status": self.status.name,
             "waitTime": self.waitTime,
             "serviceTime": self.serviceTime,

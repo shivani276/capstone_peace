@@ -556,13 +556,20 @@ class Controller:
     # ---------- per-tick ----------
     def _spawn_incidents_for_tick(self, t: int):
         todays_at_tick = self._schedule.get(t, []) if self._schedule else []
-        for (ts,lat, lng) in todays_at_tick:
+        for incident_data in todays_at_tick:
             self._spawn_attempts +=1
+            # Handle both old (ts, lat, lng) and new (ts, lat, lng, priority) formats
+            if isinstance(incident_data, tuple) and len(incident_data) == 4:
+                ts, lat, lng, priority = incident_data
+            else:
+                ts, lat, lng = incident_data[:3] if hasattr(incident_data, '__getitem__') else (incident_data, 0, 0)
+                priority = None
+            
             gi = point_to_grid_index(lat, lng, self.env.lat_edges, self.env.lng_edges)
             if gi is None or gi < 0:
                 continue
             ts_py = ts.to_pydatetime() if hasattr(ts, "to_pydatetime") else ts
-            inc = self.env.create_incident(grid_index=gi, location=(lat, lng),timestamp=ts_py)
+            inc = self.env.create_incident(grid_index=gi, location=(lat, lng), timestamp=ts_py, priority=priority)
             try:
                 self._spawned_incidents[inc.id] = inc
                 #print(f"incident stats",inc.to_dict)
