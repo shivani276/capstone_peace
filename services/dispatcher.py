@@ -5,7 +5,7 @@ Manages Algorithm 2: gridwise dispatch with multi-grid borrowing.
 """
 from typing import Dict, List, Tuple
 #from MAP_env import MAP
-from Entities.ev import EV
+from Entities.ev import EV, EvState
 from Entities.GRID import Grid
 from Entities.Incident import Incident, IncidentStatus
 from utils.Helpers import (
@@ -97,6 +97,7 @@ class DispatcherService:
                     # Record dispatch reward (utility)
                     best_ev.assign_incident(inc_id)
                     best_ev.sarns["reward"] = best_Ud
+                    best_ev.state = EvState.BUSY
                     #print("reward after dispatch",best_ev.sarns["reward"] )
                     #print(f"[DISPATCH] inc {inc.id} assigned to EV {ev.id} at tick {t}")
                 
