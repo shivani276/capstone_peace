@@ -323,7 +323,8 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return R * c
 
-def travel_minutes(lat1: float, lon1: float, lat2: float, lon2: float, kmph: float = 40.0) -> float:
+def travel_minutes(lat1: float, lon1: float, lat2: float, lon2: float,kmph = np.clip(np.random.normal(40.0, 5.0), 20.0, 80.0)
+) -> float:
     """ETA in minutes at constant average speed."""
     km = haversine_km(lat1, lon1, lat2, lon2)
     return 60.0 * km / max(kmph, 1e-6)

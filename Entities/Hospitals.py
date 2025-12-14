@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple, Dict, Any
 import math
+import numpy as np
 
 LatLng = Tuple[float, float]
 
@@ -73,11 +74,13 @@ class Hospital:
         c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
         return R * c
     
-    def estimate_eta_minutes(self, lat2: float, lng2: float, kmph: float = 40.0) -> float:
+    def estimate_eta_minutes(self, lat2: float, lng2: float, kmph : float) -> float:
         """
         Estimate ETA (in minutes) from this hospital to a point (lat2, lng2)
         at a constant average speed.
         """
+        kmph = np.clip(np.random.normal(40.0, 5.0), 20.0, 80.0)
+        #print("speed ",kmph)
         km = self.haversine_distance_km(lat2, lng2)
         return 60.0 * km / max(kmph, 1e-6)
     

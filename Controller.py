@@ -631,7 +631,7 @@ class Controller:
                 h = min(candidate_hs, key=lambda hh: hh.waitTime or 0.0)
 
                 if h is not None:
-                    eta = float(h.estimate_eta_minutes(ev.location[0], ev.location[1]))
+                    eta = float( h.estimate_eta_minutes(ev.location[0], ev.location[1], kmph = np.clip(np.random.normal(40.0, 5.0), 20.0, 80.0)))
                     ev.nextGrid = self.env.next_grid_towards(ev.gridIndex, h.gridIndex)
                     ev.navTargetHospitalId = h.id
                     ev.navdstGrid = h.gridIndex
@@ -676,7 +676,7 @@ class Controller:
         #next state???????????????  
         
         for ev in self.env.evs.values():
-            if ev.state == EvState.IDLE or ev.status == "Dispatching":
+            if ev.state == EvState.IDLE:
                 #s2 = self._build_state(ev)
                 #append this into the push rep trans, remove s2 from there
                 #self._push_reposition_transition(ev)
@@ -1036,7 +1036,7 @@ class Controller:
 
                     h = self.env.hospitals.get(a_gi)
                     if h is not None:
-                        eta = h.estimate_eta_minutes(ev.location[0], ev.location[1])
+                        eta = h.estimate_eta_minutes(ev.location[0], ev.location[1],kmph = np.clip(np.random.normal(40.0, 5.0), 20.0, 80.0))
                         ev.nextGrid = self.env.next_grid_towards(ev.gridIndex, h.gridIndex)
                         ev.navdstGrid = h.gridIndex
                         ev.status = "Navigation"
