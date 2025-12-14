@@ -13,6 +13,64 @@ class NavigationService:
     """Service for managing hospital navigation and selection."""
     
     @staticmethod
+    def calculate_eta_plus_wait(
+        ev: EV,
+        hospital: Hospital,
+    ) -> float:
+        """
+        Calculate ETA + total wait time for an EV going to a hospital.
+        
+        Total wait includes:
+        1. Hospital's base wait time (updated each tick)
+        2. Service time of higher priority EVs already being served
+        3. Service time of same priority EVs already being served
+        
+        Args:
+            ev: The EV (for location and priority)
+            hospital: The target hospital
+            
+        Returns:
+            ETA + total wait time in minutes
+        """
+        # Calculate ETA from EV to hospital
+        ev_lat, ev_lng = ev.location
+        eta = hospital.estimate_eta_minutes(ev_lat, ev_lng, kmph=40.0)
+        
+        # Get hospital's base wait time (changes each tick until arrival)
+        base_wait = float(getattr(hospital, "waitTime", 0.0))
+        
+        # Get EV's patient priority
+        ev_priority = getattr(ev, 'assignedPatientPriority', 2)
+        
+        # Add service time of higher priority EVs
+        total_additional_wait = 0.0
+        for priority in range(1, ev_priority):
+            if priority == 1:
+                num_evs = len(getattr(hospital, 'evs_serving_priority_1', []))
+            elif priority == 2:
+                num_evs = len(getattr(hospital, 'evs_serving_priority_2', []))
+            else:
+                num_evs = 0
+            total_additional_wait += num_evs * 8.0  # Assume 8 minutes per EV service
+        
+        # Add service time of same priority EVs already being served
+        if ev_priority == 1:
+            same_priority_evs = len(getattr(hospital, 'evs_serving_priority_1', []))
+        elif ev_priority == 2:
+            same_priority_evs = len(getattr(hospital, 'evs_serving_priority_2', []))
+        elif ev_priority == 3:
+            same_priority_evs = len(getattr(hospital, 'evs_serving_priority_3', []))
+        else:
+            same_priority_evs = 0
+        
+        total_additional_wait += same_priority_evs * 8.0
+        
+        # Total wait = base wait + service times of other EVs
+        total_wait = base_wait + total_additional_wait
+        
+        return eta + total_wait
+    
+    @staticmethod
     def select_hospital_for_incident(
         incident: Incident,
         hospitals: Dict[int, Hospital],
@@ -31,7 +89,7 @@ class NavigationService:
             
         if best_hid is not None:
             best_hc = hospitals[best_hid]
-            best_hc.currentEvId = evs.id
+            #best_hc.currentEvId = evs.id
             evs.navTargetHospitalId = best_hid
             evs.nextGrid = best_hc.gridIndex
             evs.sarns["reward"] = utility_navigation(best_w_busy)

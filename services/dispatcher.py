@@ -90,6 +90,7 @@ class DispatcherService:
                     best_ev.assign_incident(inc_id)
                     best_ev.sarns["reward"] = dispatch_reward
                     best_ev.state = EvState.BUSY
+                    best_ev.assignedPatientPriority = inc.priority
                     
                     # Remove from available lists per Algorithm 2
                     I.remove(best_eid)

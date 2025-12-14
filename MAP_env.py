@@ -381,6 +381,18 @@ class MAP:
                 if ev.state == EvState.BUSY and ev.gridIndex == ev.navdstGrid and ev.assignedPatientId is not None:
                     inc = self.incidents.get(ev.assignedPatientId)
                     if inc is not None:
+                        # EV reached hospital destination
+                        # Get the hospital and add EV to priority-specific service list
+                        hc_id = ev.navTargetHospitalId
+                        if hc_id is not None and hc_id in self.hospitals:
+                            hospital = self.hospitals[hc_id]
+                            priority = getattr(inc, 'priority')
+                            hospital.start_service(ev_id=ev.id, priority=priority)
+                        
+                        # Clear ETA (no longer traveling, now servicing)
+                        ev.navEtaMinutes = 0.0
+                        
+                        # Mark incident as resolved and clean up
                         inc.mark_resolved()
                         g = self.grids.get(inc.gridIndex)
                         if g is not None:
@@ -413,6 +425,11 @@ class MAP:
                 #ev.add_busy(8)
                 #print("busy time before",ev.aggBusyTime,"evid",ev.id)
                 ev.aggBusyTime  += 8
+                
+                # Decrement wait time for BUSY EVs by 8 minutes each tick
+                if ev.nextGrid == ev.navdstGrid and ev.navWaitTime > 0:
+                    ev.navWaitTime = max(0.0, ev.navWaitTime - dt_minutes)
+                
                 #print("busy time after",ev.aggBusyTime,"evid",ev.id)
                 #print("sucessful test for navigating")
 

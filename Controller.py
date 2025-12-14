@@ -533,7 +533,8 @@ class Controller:
             if i < n_busy_target:
                 ev.set_state(EvState.BUSY)
                 ev.status = "Navigation"
-                ev.nextGrid = None
+                ev.nextGrid = random.choice((1,3,4,5))
+                ev.assignedPatientPriority = random.randrange(1,4)
                 ev.navEtaMinutes = self.rng.uniform(0.0, self.max_wait_time_HC)
                 ev.aggIdleTime = 0.0
                 ev.aggIdleEnergy = 0.0
