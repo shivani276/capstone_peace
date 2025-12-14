@@ -20,7 +20,7 @@ class EV:
     nextGrid: Optional[int] = None
     status: str = "Idle"
     assignedPatientId: Optional[int] = None
-
+    metric = []
     aggIdleTime: float = 0.0
     aggIdleEnergy: float = 0.0
     aggBusyTime: float = 0.0
@@ -56,11 +56,10 @@ class EV:
     def set_state(self, new_state: EvState) -> None:
         self.state = new_state
 
-    def add_idle(self, dt: float, idletime:float) -> None:
-        print(f" EV {self.id} idle time is {self.aggIdleTime}")
-        self.aggIdleTime = dt+idletime
-        print(f"[DBG] EV {self.id} idle time updated to {self.aggIdleTime}")
-        #self.aggIdleEnergy += 0.012
+    def add_idle(self, dt: float) -> None:
+        print("added idle time for staying")
+        self.aggIdleTime += dt
+        self.aggIdleEnergy += 0.012
         
     def add_busy(self, dt: float) -> None:
         self.aggBusyTime += dt
@@ -73,7 +72,8 @@ class EV:
         Execute the reposition decision made in this tick.
         This should be called after move_to() has been invoked by MAP.
         """
-        print(f"[DBG] execute_reposition called for EV {self.id}")
+        print("entered execute rep added 8 and 0.12")
+        #print(f"[DBG] execute_reposition called for EV {self.id}")
         self.aggIdleEnergy += 0.12  # Fixed energy cost for repositioning from one grid to another
         self.aggIdleTime += 8.0       # Fixed time cost for repositioning from one grid to another
     
