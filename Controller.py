@@ -959,7 +959,7 @@ class Controller:
             if a_gi == ev.nextGrid and ev.status == "Repositioning" :
                 offers += 1
         return offers
-    def _tick_check(self, t: int) -> None:
+    def _tick_check(self, t: int) -> dict:
             
             self.slot_idle_time = []
             self.slot_idle_energy = []
@@ -1009,7 +1009,7 @@ class Controller:
             nav_actions: list = []
             for ev in self.env.evs.values():
                 if ev.state == EvState.BUSY and ev.status == "Navigation":
-                    state_vec = self.build_state_nav1(ev) 
+                    state_vec,_ = self.build_state_nav1(ev) 
                     ev.sarns["state"] = state_vec
                     a_gi = self._select_nav_action(state_vec)
                     ev.sarns["action"] = a_gi
@@ -1055,6 +1055,7 @@ class Controller:
                 #print("in time slot metric added")
                 #print("key vlaue pair in test",self.list_metrics.keys,self.list_metrics.values)
                 #print("check", self.list_metrics[ev.id],ev.id)
+                       
             return self.list_metrics
     def run_test_episode(self, episode_idx: int) -> dict:
         self._reset_episode()
