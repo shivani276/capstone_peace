@@ -278,12 +278,14 @@ class MAP:
     # ========== ALGORITHMS (delegated to services) ==========
     
     def accept_reposition_offers(self) -> None:
+        #print("function called for acepting offers")
         """
         Algorithm 1: Accept or reject repositioning offers from idle EVs.
         
         Delegates to RepositioningService.
         See services.repositioning.RepositioningService.accept_reposition_offers()
         """
+        #print("function call into function :(")
         self.repositioner.accept_reposition_offers(self.evs, self.grids, self.incidents)
 
     '''def step_reposition(self) -> None:
@@ -368,6 +370,7 @@ class MAP:
 
     def update_after_tick(self, dt_minutes: float = 8.0) -> None:
         # EV updates
+        #print("updtae function call")
         for ev in self.evs.values():
             if ev.nextGrid is not None:
                 if ev.state == EvState.BUSY and ev.gridIndex == ev.navdstGrid and ev.assignedPatientId is not None:
@@ -385,36 +388,31 @@ class MAP:
                 self.move_ev_to_grid(ev.id,ev.nextGrid)
 
             # 1) EV staying idle in its chosen grid
-            if ev.state == EvState.IDLE: 
+            if ev.state == EvState.IDLE:
                 if ev.gridIndex == ev.sarns.get("action"):
-                    ev.add_idle(8,ev.aggIdleTime)
-                if ev.status == "Repositioning" and ev.sarns.get("reward") is not None:
-                    ev.execute_reposition()
-                if ev.status == "Dispatching" and ev.assignedPatientId is not None:
+                    #ev.add_idle(8)
+                    #print("beforee",ev.aggIdleTime,"evid",ev.id)
+                    ev.aggIdleTime += 8
+                    #print("after",ev.aggIdleTime,"evid",ev.id)
+                    #print("sucessful test for idle and stayed,dint add energy")
+                elif ev.status == "Repositioning" or ev.sarns.get("reward") is not None:
+                    #ev.execute_reposition()
+                    ev.aggIdleEnergy += 0.12  # Fixed energy cost for repositioning from one grid to another
+                    ev.aggIdleTime += 8.0  
+                    #print("i guess its done?")
+                    #print("sucessful test for idle and repositioning")
+                elif ev.status == "Dispatching" and ev.assignedPatientId is not None:
                     ev.state = EvState.BUSY
+                    #print("sucessful test for idle and dispatching, changed state")
+            else:
+                #ev.add_busy(8)
+                #print("busy time before",ev.aggBusyTime,"evid",ev.id)
+                ev.aggBusyTime  += 8
+                #print("busy time after",ev.aggBusyTime,"evid",ev.id)
+                #print("sucessful test for navigating")
 
-            elif ev.state == EvState.BUSY:
-                ev.add_busy(8)  
-
-            # 2) EV has been dispatched but no reward yet: move it to patient's grid
-            '''elif ev.status == "Dispatching" and ev.assignedPatientId is not None:
-                ev.state = EvState.BUSY'''
-                #dispatched += 1
-                #print("changed the status after dispatch for the EV", ev.id)
-                #inc = self.incidents.get(ev.assignedPatientId)
-        
-            # 3) Accepted reposition: execute energy/time cost + move
-            '''elif ev.status == "Repositioning" and ev.sarns.get("reward") is not None:
-                ev.execute_reposition()'''
-
-                # optional: reset status after move
-                # ev.status = "available"
-                # ev.nextGrid = None
-
-            
-
-                
-            '''hc_id = ev.navTargetHospitalId
+                '''
+                hc_id = ev.navTargetHospitalId
                 if hc_id is not None:
                     hospital = self.hospitals.get(hc_id)
                     if hospital is not None and getattr(hospital, "gridIndex", None) is not None:
