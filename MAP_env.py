@@ -338,6 +338,26 @@ class MAP:
             beta=beta,
         )
 
+    def calculate_eta_plus_wait(self, ev, hospital: Hospital) -> float:
+        """
+        Calculate ETA + total wait time for an EV going to a hospital.
+        
+        Total wait includes:
+        1. Hospital's base wait time (updated each tick)
+        2. Service time of higher priority EVs already being served
+        3. Service time of same priority EVs already being served
+        
+        Delegates to NavigationService.
+        
+        Args:
+            ev: The EV (for location and priority)
+            hospital: The target hospital
+            
+        Returns:
+            ETA + total wait time in minutes
+        """
+        return self.navigator.calculate_eta_plus_wait(ev, hospital)
+
     '''def choose_hospital_for_ev(self, ev_id: int, inc_id: int) -> None:
         """
         Select the best (nearest) hospital for a patient incident.
