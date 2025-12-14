@@ -397,7 +397,7 @@ class MAP:
         # EV updates
         #print("updtae function call")
         for ev in self.evs.values():
-            if ev.nextGrid is not None:
+            if ev.nextGrid and ev.id is not None:
                 if ev.state == EvState.BUSY and ev.gridIndex == ev.navdstGrid and ev.assignedPatientId is not None:
                     inc = self.incidents.get(ev.assignedPatientId)
                     if inc is not None:
@@ -436,8 +436,8 @@ class MAP:
                        
                         ev.release_incident()
 
-
-                self.move_ev_to_grid(ev.id,ev.nextGrid)
+                if ev.nextGrid is not None:
+                    self.move_ev_to_grid(ev.id,ev.nextGrid)
 
             # 1) EV staying idle in its chosen grid
             if ev.state == EvState.IDLE:

@@ -18,7 +18,6 @@ from utils.Helpers import (
     utility_navigation, load_calls
 )
 
-
 from DQN import DQNetwork, ReplayBuffer
 print("controler loaded")
 DIRECTION_ORDER = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
@@ -225,33 +224,47 @@ class Controller:
         if not hc_grids:
             return [], []
 
-        # 2) Group hospitals by grid once
-        hospitals_by_grid = {}
-        for h in self.env.hospitals.values():
-            g_idx = h.gridIndex
-            if g_idx not in hospitals_by_grid:
-                hospitals_by_grid[g_idx] = []
-            hospitals_by_grid[g_idx].append(h)
-
-        # 3) Build state vector
         state_vec: list[float] = []
-        grid_ids: list[int] = list(hc_grids)
+        grid_ids:  list[int]   = list(hc_grids)
+
+        # 2) Pre-compute mean wait time per HC-grid
+        grid_mean_wait = {}
+        for g_idx in hc_grids:
+            waits = []
+            for h in self.env.hospitals.values():
+                if h.gridIndex != g_idx:
+                    continue
+                w = getattr(h, "waitTime", None)
+                if w is not None:
+                    waits.append(float(w))
+            if waits:
+                grid_mean_wait[g_idx] = sum(waits) / len(waits)
+            else:
+                grid_mean_wait[g_idx] = 0.0
+
+        # 3) Build feature per HC-grid: eta(ev → grid) + mean_wait(grid)
+        ev_lat, ev_lng = ev.location
 
         for g_idx in hc_grids:
-            hs_in_grid = hospitals_by_grid.get(g_idx, [])
+
+            hs_in_grid = [h for h in self.env.hospitals.values()
+                          if h.gridIndex == g_idx]
             if not hs_in_grid:
                 state_vec.append(0.0)
                 continue
 
-            # Compute mean wait for this grid
-            waits = []
-            for h in hs_in_grid:
-                w = self.env.calculate_eta_plus_wait(ev, h)
-                if w is not None:
-                    waits.append(float(w))
-            mean_wait = sum(waits) / len(waits) if waits else 0.0
+            h0 = hs_in_grid[0]
 
-            state_vec.append(mean_wait)
+            try:
+                eta = float(h0.estimate_eta_minutes(ev_lat, ev_lng))
+            except Exception:
+                eta = 0.0
+
+            mean_wait = grid_mean_wait[g_idx]
+            feature = eta + mean_wait
+
+            state_vec.append(feature)
+
 
         return state_vec, grid_ids
 
@@ -520,8 +533,7 @@ class Controller:
             if i < n_busy_target:
                 ev.set_state(EvState.BUSY)
                 ev.status = "Navigation"
-                ev.nextGrid = random.choice((1,3,4,5))
-                ev.assignedPatientPriority = random.randrange(1,4)
+                ev.nextGrid = None
                 ev.navEtaMinutes = self.rng.uniform(0.0, self.max_wait_time_HC)
                 ev.aggIdleTime = 0.0
                 ev.aggIdleEnergy = 0.0
@@ -546,20 +558,13 @@ class Controller:
     # ---------- per-tick ----------
     def _spawn_incidents_for_tick(self, t: int):
         todays_at_tick = self._schedule.get(t, []) if self._schedule else []
-        for incident_data in todays_at_tick:
+        for (ts,lat, lng) in todays_at_tick:
             self._spawn_attempts +=1
-            # Handle both old (ts, lat, lng) and new (ts, lat, lng, priority) formats
-            if isinstance(incident_data, tuple) and len(incident_data) == 4:
-                ts, lat, lng, priority = incident_data
-            else:
-                ts, lat, lng = incident_data[:3] if hasattr(incident_data, '__getitem__') else (incident_data, 0, 0)
-                priority = None
-            
             gi = point_to_grid_index(lat, lng, self.env.lat_edges, self.env.lng_edges)
             if gi is None or gi < 0:
                 continue
             ts_py = ts.to_pydatetime() if hasattr(ts, "to_pydatetime") else ts
-            inc = self.env.create_incident(grid_index=gi, location=(lat, lng), timestamp=ts_py, priority=priority)
+            inc = self.env.create_incident(grid_index=gi, location=(lat, lng),timestamp=ts_py)
             try:
                 self._spawned_incidents[inc.id] = inc
                 #print(f"incident stats",inc.to_dict)
