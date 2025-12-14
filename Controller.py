@@ -256,7 +256,7 @@ class Controller:
             h0 = hs_in_grid[0]
 
             try:
-                eta = float(h0.estimate_eta_minutes(ev_lat, ev_lng))
+                eta = float(h0.estimate_eta_minutes(ev_lat, ev_lng,40.0))
             except Exception:
                 eta = 0.0
 
