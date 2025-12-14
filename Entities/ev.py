@@ -56,9 +56,11 @@ class EV:
     def set_state(self, new_state: EvState) -> None:
         self.state = new_state
 
-    def add_idle(self, dt: float) -> None:
-        self.aggIdleTime += dt
-        self.aggIdleEnergy += 0.012
+    def add_idle(self, dt: float, idletime:float) -> None:
+        print(f" EV {self.id} idle time is {self.aggIdleTime}")
+        self.aggIdleTime = dt+idletime
+        print(f"[DBG] EV {self.id} idle time updated to {self.aggIdleTime}")
+        #self.aggIdleEnergy += 0.012
         
     def add_busy(self, dt: float) -> None:
         self.aggBusyTime += dt
