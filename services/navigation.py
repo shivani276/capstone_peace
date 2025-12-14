@@ -37,36 +37,38 @@ class NavigationService:
         eta = hospital.estimate_eta_minutes(ev_lat, ev_lng, kmph=40.0)
         
         # Get hospital's base wait time (changes each tick until arrival)
-        base_wait = float(getattr(hospital, "waitTime", 0.0))
-        
-        # Get EV's patient priority
-        ev_priority = getattr(ev, 'assignedPatientPriority', 2)
-        
-        # Add service time of higher priority EVs
-        total_additional_wait = 0.0
-        for priority in range(1, ev_priority):
-            if priority == 1:
-                num_evs = len(getattr(hospital, 'evs_serving_priority_1', []))
-            elif priority == 2:
-                num_evs = len(getattr(hospital, 'evs_serving_priority_2', []))
+        if ev.navTargetHospitalId != hospital.id and ev.navWaitTime != 0.0:
+            base_wait = float(getattr(hospital, "waitTime", 0.0))
+            # Get EV's patient priority
+            ev_priority = getattr(ev, 'assignedPatientPriority', 2)
+            
+            # Add service time of higher priority EVs
+            total_additional_wait = 0.0
+            for priority in range(1, ev_priority):
+                if priority == 1:
+                    num_evs = len(getattr(hospital, 'evs_serving_priority_1', []))
+                elif priority == 2:
+                    num_evs = len(getattr(hospital, 'evs_serving_priority_2', []))
+                else:
+                    num_evs = 0
+                total_additional_wait += num_evs * 8.0  # Assume 8 minutes per EV service
+            
+            # Add service time of same priority EVs already being served
+            if ev_priority == 1:
+                same_priority_evs = len(getattr(hospital, 'evs_serving_priority_1', []))
+            elif ev_priority == 2:
+                same_priority_evs = len(getattr(hospital, 'evs_serving_priority_2', []))
+            elif ev_priority == 3:
+                same_priority_evs = len(getattr(hospital, 'evs_serving_priority_3', []))
             else:
-                num_evs = 0
-            total_additional_wait += num_evs * 8.0  # Assume 8 minutes per EV service
-        
-        # Add service time of same priority EVs already being served
-        if ev_priority == 1:
-            same_priority_evs = len(getattr(hospital, 'evs_serving_priority_1', []))
-        elif ev_priority == 2:
-            same_priority_evs = len(getattr(hospital, 'evs_serving_priority_2', []))
-        elif ev_priority == 3:
-            same_priority_evs = len(getattr(hospital, 'evs_serving_priority_3', []))
+                same_priority_evs = 0
+            
+            total_additional_wait += same_priority_evs * 8.0
+            
+            # Total wait = base wait + service times of other EVs
+            total_wait = base_wait + total_additional_wait
         else:
-            same_priority_evs = 0
-        
-        total_additional_wait += same_priority_evs * 8.0
-        
-        # Total wait = base wait + service times of other EVs
-        total_wait = base_wait + total_additional_wait
+            total_wait = ev.navWaitTime
         
         return eta + total_wait
     
