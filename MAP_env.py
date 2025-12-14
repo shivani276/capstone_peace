@@ -401,23 +401,35 @@ class MAP:
                 if ev.state == EvState.BUSY and ev.gridIndex == ev.navdstGrid and ev.assignedPatientId is not None:
                     inc = self.incidents.get(ev.assignedPatientId)
                     if inc is not None:
-                        # EV reached hospital destination
-                        # Get the hospital and add EV to priority-specific service list
-                        hc_id = ev.navTargetHospitalId
-                        if hc_id is not None and hc_id in self.hospitals:
-                            hospital = self.hospitals[hc_id]
-                            priority = getattr(inc, 'priority')
-                            hospital.start_service(ev_id=ev.id, priority=priority)
+                        # EV reached hospital destination grid
+                        # Pick best hospital in this grid using calculate_eta_plus_wait
+                        dest_grid_idx = ev.navdstGrid
+                        hospitals_in_grid = [
+                            h for h in self.hospitals.values()
+                            if h.gridIndex == dest_grid_idx
+                        ]
+                        
+                        if hospitals_in_grid:
+                            # Pick hospital with minimum total wait (eta + queue)
+                            best_hospital = min(
+                                hospitals_in_grid,
+                                key=lambda h: self.calculate_eta_plus_wait(ev, h)
+                            )
+                            priority = getattr(inc, 'priority', 1)
+                            best_hospital.start_service(ev_id=ev.id, priority=priority)
                         
                         # Clear ETA (no longer traveling, now servicing)
                         ev.navEtaMinutes = 0.0
                         
                         # Mark incident as resolved and clean up
-                        inc.mark_resolved()
-                        g = self.grids.get(inc.gridIndex)
-                        if g is not None:
-                            g.remove_incident(inc.id)
-                            del inc
+                        if ev.navWaitTime <= 0.0:
+                            inc.mark_resolved()
+                            ev.state = EvState.IDLE
+                            ev.status = "Idle"
+                            g = self.grids.get(inc.gridIndex)
+                            if g is not None:
+                                g.remove_incident(inc.id)
+                                del inc
                        
                         ev.release_incident()
 
