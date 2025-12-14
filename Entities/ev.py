@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Optional, List, Tuple, Dict, Any
+import random
 
 LatLng = Tuple[float, float]
 
@@ -20,6 +21,7 @@ class EV:
     nextGrid: Optional[int] = None
     status: str = "Idle"
     assignedPatientId: Optional[int] = None
+    assignedPatientPriority: int = 0  # 1 to 3  inclusive for pri
     metric = []
     aggIdleTime: float = 0.0
     aggIdleEnergy: float = 0.0
@@ -27,7 +29,7 @@ class EV:
     navTargetHospitalId: int | None = None  # hospital currently chosen for navigation
     navdstGrid: int | None = None        # grid index of that hospital
     navEtaMinutes: float = 0.0              # latest ETA to that hospital
-    navUtility: float = 0.0                 
+    navWaitTime: float = 0.0                 
 
     # sarns now a dict, as requested
     sarns: Dict[str, Any ] = field(default_factory=dict)
@@ -86,6 +88,7 @@ class EV:
             "state": self.state.name,
             "status": self.status,
             "assignedPatientId": self.assignedPatientId,
+            "assignedPatientPriority": self.assignedPatientPriority,
             "aggIdleTime": self.aggIdleTime,
             "aggIdleEnergy": self.aggIdleEnergy,
             "sarns": self.sarns,

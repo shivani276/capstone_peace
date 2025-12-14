@@ -16,16 +16,34 @@ class Hospital:
     services: List[str] = field(default_factory=list)
 
     queue: List[int] = field(default_factory=list)          # patient ids
-    currentEvId: Optional[int] = None
+    evs_serving_priority_1: List[int] = field(default_factory=list)  # EVs serving priority 1 patients
+    evs_serving_priority_2: List[int] = field(default_factory=list)  # EVs serving priority 2 patients
+    evs_serving_priority_3: List[int] = field(default_factory=list)  # EVs serving priority 3 patients
 
     def enqueue_patient(self, patient_id: int) -> None:
         self.queue.append(patient_id)
 
-    def start_service(self, ev_id: int) -> None:
-        self.currentEvId = ev_id
+    def start_service(self, ev_id: int, priority: int) -> None:
+        """Start service with an EV for a patient of given priority."""
+        if priority == 1:
+            self.evs_serving_priority_1.append(ev_id)
+        elif priority == 2:
+            self.evs_serving_priority_2.append(ev_id)
+        elif priority == 3:
+            self.evs_serving_priority_3.append(ev_id)
 
-    def finish_service(self) -> Optional[int]:
-        self.currentEvId = None
+    def finish_service(self, ev_id: int, priority: int) -> Optional[int]:
+        """Finish service for an EV serving a patient of given priority."""
+        if priority == 1:
+            if ev_id in self.evs_serving_priority_1:
+                self.evs_serving_priority_1.remove(ev_id)
+        elif priority == 2:
+            if ev_id in self.evs_serving_priority_2:
+                self.evs_serving_priority_2.remove(ev_id)
+        elif priority == 3:
+            if ev_id in self.evs_serving_priority_3:
+                self.evs_serving_priority_3.remove(ev_id)
+        
         if self.queue:
             return self.queue.pop(0)
         return None
@@ -123,5 +141,7 @@ class Hospital:
             "waitTime": self.waitTime,
             "services": list(self.services),
             "queueLen": len(self.queue),
-            "currentEvId": self.currentEvId,
+            "evs_serving_priority_1": list(self.evs_serving_priority_1),
+            "evs_serving_priority_2": list(self.evs_serving_priority_2),
+            "evs_serving_priority_3": list(self.evs_serving_priority_3),
         }
