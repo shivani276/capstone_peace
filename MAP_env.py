@@ -120,7 +120,7 @@ class MAP:
             g.evs.clear()
 
         rng = random.Random(seed)
-        n_evs = 11
+        n_evs = 27
         all_idx = list(self.grids.keys())
 
         for _ in range(n_evs):
@@ -147,15 +147,17 @@ class MAP:
 
     # ========== INCIDENT MANAGEMENT ==========
     
-    def create_incident(self, grid_index: int, location: Tuple[float, float], priority: str = "MED") -> Incident:
+    def create_incident(self, grid_index: int, location: Tuple[float, float], timestamp: Optional[datetime] = None,) -> Incident:
         """Create a new incident and place it in a grid."""
         self._incidentCounter += 1
+
+        if timestamp is None:
+            timestamp = datetime.now()
         inc = Incident(
             id=self._incidentCounter,
             gridIndex=grid_index,
-            timestamp=datetime.now(),
-            location=location,
-            priority=Priority[priority],
+            timestamp=timestamp,
+            location=location
         )
         self.incidents[inc.id] = inc
         self.grids[grid_index].add_incident(inc.id)
