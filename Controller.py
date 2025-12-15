@@ -234,38 +234,25 @@ class Controller:
             for h in self.env.hospitals.values():
                 if h.gridIndex != g_idx:
                     continue
-                w = getattr(h, "waitTime", None)
+                w = self.env.calculate_eta_plus_wait(ev, h)
                 if w is not None:
                     waits.append(float(w))
             if waits:
                 grid_mean_wait[g_idx] = sum(waits) / len(waits)
             else:
                 grid_mean_wait[g_idx] = 0.0
-
-        # 3) Build feature per HC-grid: eta(ev → grid) + mean_wait(grid)
-        ev_lat, ev_lng = ev.location
-
-        for g_idx in hc_grids:
+            
+            '''for g_idx in hc_grids:
 
             hs_in_grid = [h for h in self.env.hospitals.values()
                           if h.gridIndex == g_idx]
             if not hs_in_grid:
                 state_vec.append(0.0)
-                continue
-
-            h0 = hs_in_grid[0]
-
-            try:
-                eta = float(h0.estimate_eta_minutes(ev_lat, ev_lng,40.0))
-            except Exception:
-                eta = 0.0
-
+                continue'''
+            
             mean_wait = grid_mean_wait[g_idx]
-            feature = eta + mean_wait
-
-            state_vec.append(feature)
-
-
+            state_vec.append(mean_wait)
+        
         return state_vec, grid_ids
 
     '''def build_state_nav(self, ev) -> list[float]:
@@ -558,7 +545,7 @@ class Controller:
     # ---------- per-tick ----------
     def _spawn_incidents_for_tick(self, t: int):
         todays_at_tick = self._schedule.get(t, []) if self._schedule else []
-        for (ts,lat, lng,pri) in todays_at_tick:
+        for (ts,lat, lng, pri) in todays_at_tick:
             self._spawn_attempts +=1
             gi = point_to_grid_index(lat, lng, self.env.lat_edges, self.env.lng_edges)
             if gi is None or gi < 0:
@@ -574,7 +561,7 @@ class Controller:
 
     def _tick(self, t: int) -> None:
         #print("called tick")
-        hard_update(self.dqn_reposition_target, self.dqn_reposition_main)
+        
 
         # 1) spawn incidents
         self._spawn_incidents_for_tick(t)
@@ -846,6 +833,8 @@ class Controller:
         #print(f"Dispatch: total={total_dispatches} | unique={unique_assigned_incidents}")
         #print(f"Nav Loss: {avg_ep_loss:.4f}| Repo Loss: {avg_repo_loss:.4f}")
         #print("=" * 60)
+
+        hard_update(self.dqn_reposition_target, self.dqn_reposition_main)
 
         stats = {
             "episode": episode_idx,
