@@ -256,7 +256,7 @@ class Controller:
             h0 = hs_in_grid[0]
 
             try:
-                eta = float(h0.estimate_eta_minutes(ev_lat, ev_lng))
+                eta = float(h0.estimate_eta_minutes(ev_lat, ev_lng,40.0))
             except Exception:
                 eta = 0.0
 
@@ -558,13 +558,13 @@ class Controller:
     # ---------- per-tick ----------
     def _spawn_incidents_for_tick(self, t: int):
         todays_at_tick = self._schedule.get(t, []) if self._schedule else []
-        for (ts,lat, lng) in todays_at_tick:
+        for (ts,lat, lng,pri) in todays_at_tick:
             self._spawn_attempts +=1
             gi = point_to_grid_index(lat, lng, self.env.lat_edges, self.env.lng_edges)
             if gi is None or gi < 0:
                 continue
             ts_py = ts.to_pydatetime() if hasattr(ts, "to_pydatetime") else ts
-            inc = self.env.create_incident(grid_index=gi, location=(lat, lng),timestamp=ts_py)
+            inc = self.env.create_incident(grid_index=gi, location=(lat, lng),timestamp=ts_py,priority=pri)
             try:
                 self._spawned_incidents[inc.id] = inc
                 #print(f"incident stats",inc.to_dict)
