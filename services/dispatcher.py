@@ -85,12 +85,15 @@ class DispatcherService:
                 if best_eid is not None:
                     best_ev = evs[best_eid]
                     inc.assign_ev(best_eid)
+                    inc.serviceTime = inc.waitTime
                     
                     # Record dispatch with priority-based reward (not wait time dependent)
                     best_ev.assign_incident(inc_id)
                     best_ev.sarns["reward"] = dispatch_reward
                     best_ev.state = EvState.BUSY
                     best_ev.assignedPatientPriority = inc.priority
+                    if ev.gridIndex != inc.gridIndex:
+                        best_ev.nextGrid = g_idx  # Move to incident grid first
                     
                     # Remove from available lists per Algorithm 2
                     I.remove(best_eid)

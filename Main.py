@@ -109,8 +109,9 @@ for ep in range(1, n_episodes + 1):
 trained_nav = ctrl.dqn_navigation_main 
 trained_rep = ctrl.dqn_reposition_main 
 # after 500 training episodes
-torch.save(trained_nav.state_dict(), "Entities/pained_nav.pth")
-torch.save(trained_rep.state_dict(), "Entities/pained_rep.pth")
+if trained_nav is not None and trained_rep is not None:
+    torch.save(trained_nav.state_dict(), "Entities/pained_nav.pth")
+    torch.save(trained_rep.state_dict(), "Entities/pained_rep.pth")
 print("---------TRAINED DQNS ARE SAVED IN ENTITIES----------")
 for ep in range(0,n_tests):
     print("Test Slot:", ep+1)
