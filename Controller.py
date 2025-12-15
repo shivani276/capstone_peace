@@ -520,7 +520,8 @@ class Controller:
             if i < n_busy_target:
                 ev.set_state(EvState.BUSY)
                 ev.status = "Navigation"
-                ev.nextGrid = None
+                ev.navdstGrid = random.choice((0,3,4,5))
+                ev.assignedPatientPriority = random.choice((1,2,3))
                 ev.navEtaMinutes = self.rng.uniform(0.0, self.max_wait_time_HC)
                 ev.aggIdleTime = 0.0
                 ev.aggIdleEnergy = 0.0
@@ -532,7 +533,7 @@ class Controller:
                 ev.aggIdleEnergy = self.rng.uniform(0.0, self.max_idle_energy)
                 ev.navTargetHospitalId = None
                 ev.navEtaMinutes = 0.0
-                ev.navUtility = 0.0
+                
 
             ev.sarns.clear()
             ev.sarns["state"] = None
@@ -600,8 +601,18 @@ class Controller:
                 slo = self._select_nav_action(state_vec)
                 #print("navigation actions", a_gi)
                 ev.sarns["action"] = slo
-                '''dest_grid = grid_ids[slo]
-                candidate_hs = [
+                dest_grid = grid_ids[slo]
+                ev.nextGrid = self.env.next_grid_towards(ev.gridIndex, dest_grid)
+                ev.navEtaMinutes += best_hospital.estimate_eta_minutes(ev.location[0], ev.location[1], 40.0)
+                ev.aggBusyTime += best_hospital.estimate_eta_minutes(ev.location[0], ev.location[1], 40.0)
+                if ev.nextGrid == -1:
+                        best_hospital = self.env.select_hospital(ev, list(self.env.hospitals.values()), self.env.calculate_eta_plus_wait)   
+                        ev.navTargetHospitalId = best_hospital.id
+                        ev.navWaitTime = self.env.calculate_eta_plus_wait(ev, best_hospital) 
+                        
+                
+                #  REWARD CALCULATION
+                '''candidate_hs = [
                 h for h in self.env.hospitals.values()
                 if h.gridIndex == dest_grid
                 ]
@@ -621,9 +632,9 @@ class Controller:
                         w_busy = eta + h.waitTime
                         ev.navEtaMinutes = w_busy
                         ev.sarns["reward"] = utility_navigation(w_busy)
-                        #print("reward for navigation", ev.sarns["reward"])'''
+                        #print("reward for navigation", ev.sarns["reward"])
                 
-                '''print(
+                print(
                         f"[NAV-DEBUG] ev={ev.id} "
                         f"slot={slo} dest_grid={dest_grid} "
                         f"navTargetHospitalId={ev.navTargetHospitalId} "
@@ -688,7 +699,7 @@ class Controller:
                 st_2_n = torch.as_tensor(st_2_n, dtype=torch.float32, device=self.device).view(-1)
                
                 self.buffer_navigation.push(s_t, a_t, r_t, st_2_n, done_t)
-                #print("Navigation transition pushed:", s_t, a_t, r_t, st_2_n, done_t)
+                print("Navigation transition pushed:", s_t, a_t, r_t, st_2_n, done_t)
                 
                 if len(self.buffer_navigation) >= 1000:
                     Sn, An, Rn, S2n, Dn = self.buffer_navigation.sample(64, self.device)

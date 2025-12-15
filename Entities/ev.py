@@ -49,7 +49,8 @@ class EV:
         self.nextGrid = None
         self.navTargetHospitalId = None
         self.navEtaMinutes = 0.0
-        self.navUtility = 0.0
+        self.navdstGrid = None
+        self.navWaitTime = 0.0
 
     def move_to(self, grid_index: int, new_loc: LatLng) -> None:
         self.gridIndex = grid_index
