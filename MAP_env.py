@@ -120,7 +120,7 @@ class MAP:
             g.evs.clear()
 
         rng = random.Random(seed)
-        n_evs = 11
+        n_evs = 27
         all_idx = list(self.grids.keys())
 
         for _ in range(n_evs):
@@ -147,15 +147,22 @@ class MAP:
 
     # ========== INCIDENT MANAGEMENT ==========
     
-    def create_incident(self, grid_index: int, location: Tuple[float, float], priority: str = "MED") -> Incident:
+    def create_incident(self, grid_index: int, location: Tuple[float, float], timestamp: Optional[datetime] = None, priority: Optional[int] = None) -> Incident:
         """Create a new incident and place it in a grid."""
         self._incidentCounter += 1
+
+        if timestamp is None:
+            timestamp = datetime.now()
+        
+        # Use priority from dataset, default to 1 if None
+        pri = int(priority) if priority is not None else 1
+        
         inc = Incident(
             id=self._incidentCounter,
             gridIndex=grid_index,
-            timestamp=datetime.now(),
+            timestamp=timestamp,
             location=location,
-            priority=Priority[priority],
+            priority=pri
         )
         self.incidents[inc.id] = inc
         self.grids[grid_index].add_incident(inc.id)
@@ -236,7 +243,7 @@ class MAP:
     def next_grid_towards(self, from_idx: int, to_idx: int) -> int:
 
         if from_idx == to_idx:
-            return from_idx
+            return -1  # already there
 
         n_rows = len(self.lat_edges) - 1
         n_cols = len(self.lng_edges) - 1
@@ -276,12 +283,14 @@ class MAP:
     # ========== ALGORITHMS (delegated to services) ==========
     
     def accept_reposition_offers(self) -> None:
+        #print("function called for acepting offers")
         """
         Algorithm 1: Accept or reject repositioning offers from idle EVs.
         
         Delegates to RepositioningService.
         See services.repositioning.RepositioningService.accept_reposition_offers()
         """
+        #print("function call into function :(")
         self.repositioner.accept_reposition_offers(self.evs, self.grids, self.incidents)
 
     '''def step_reposition(self) -> None:
@@ -329,7 +338,27 @@ class MAP:
             beta=beta,
         )
 
-    '''def choose_hospital_for_ev(self, ev_id: int, inc_id: int) -> None:
+    def calculate_eta_plus_wait(self, ev, hospital: Hospital) -> float:
+        """
+        Calculate ETA + total wait time for an EV going to a hospital.
+        
+        Total wait includes:
+        1. Hospital's base wait time (updated each tick)
+        2. Service time of higher priority EVs already being served
+        3. Service time of same priority EVs already being served
+        
+        Delegates to NavigationService.
+        
+        Args:
+            ev: The EV (for location and priority)
+            hospital: The target hospital
+            
+        Returns:
+            ETA + total wait time in minutes
+        """
+        return self.navigator.calculate_eta_plus_wait(ev, hospital)
+
+    def select_hospital(self, ev: EV, hospitals_in_grid: list, calculate_wait_func) -> Hospital:
         """
         Select the best (nearest) hospital for a patient incident.
         
@@ -342,9 +371,7 @@ class MAP:
         Returns:
             Tuple of (hospital_id, eta_minutes)
         """
-        inc = self.incidents[inc_id]
-        evs = self.evs[ev_id]
-        return self.navigator.select_hospital_for_incident(inc, self.hospitals,evs)'''
+        return self.navigator.select_hospital(ev, hospitals_in_grid, calculate_wait_func=self.calculate_eta_plus_wait)
 
     '''def get_nav_candidates(self, inc_id: int, max_k: int = 8) -> Tuple[List[int], List[float], List[float]]:
         """
@@ -366,43 +393,108 @@ class MAP:
 
     def update_after_tick(self, dt_minutes: float = 8.0) -> None:
         # EV updates
+        #print("updtae function call")
         for ev in self.evs.values():
-            if ev.nextGrid is not None:
-                if ev.state == EvState.BUSY and ev.gridIndex == ev.navdstGrid and ev.assignedPatientId is not None:
-                    inc = self.incidents.get(ev.assignedPatientId)
-                    if inc is not None:
-                        inc.mark_resolved()
-                        g = self.grids.get(inc.gridIndex)
-                        if g is not None:
-                            g.remove_incident(inc.id)
-                            del inc
+            if ev.nextGrid and ev.id is not None:
+                if ev.state == EvState.BUSY: #and ev.gridIndex == ev.navdstGrid: #and ev.assignedPatientId is not None:
+                    #
+                    if ev.status == "Dispatching" and ev.assignedPatientId is not None:
+                        inc = self.incidents.get(ev.assignedPatientId)
+                        if ev.gridIndex != ev.nextGrid:
+                            self.move_ev_to_grid(ev.id, ev.nextGrid)
+                            if inc is not None:
+                                inc.waitTime += 8.0
+                        else:
+                            if inc is not None:
+                                inc.waitTime += inc.estimate_eta_minutes(inc.location[0], inc.location[1], 40.0)
+                                ev.status = "Navigation"
+                                ev.nextGrid = None
+                                inc.status = IncidentStatus.SERVICING
+
+                    if ev.status == "Navigation" and ev.nextGrid is not None:
+                        ev.navEtaMinutes -= 8
+                        ev.aggBusyTime += 8
+                        if ev.nextGrid != -1:
+                            self.move_ev_to_grid(ev.id, ev.nextGrid)                            
+                            
+                        elif max(0.0,ev.navEtaMinutes) == 0.0 and ev.navTargetHospitalId is not None:
+                            h = self.hospitals[ev.navTargetHospitalId]  # Get the Hospital object
+                            if ev.assignedPatientPriority == 1:
+                                h.evs_serving_priority_1.append(ev.id)
+                            elif ev.assignedPatientPriority == 2:
+                                h.evs_serving_priority_2.append(ev.id)
+                            else:
+                                h.evs_serving_priority_3.append(ev.id)
+                            ev.navWaitTime -= 8.0
+                            if ev.navWaitTime <= 0.0:
+                                if ev.assignedPatientId is not None:
+                                    inc = self.incidents.get(ev.assignedPatientId)
+                                    if inc is not None:
+                                        inc.mark_resolved()
+                                        ev.release_incident()
+                                        g = self.grids.get(inc.gridIndex)
+                                        if g is not None:
+                                            g.remove_incident(inc.id)
+                                            del inc
+                                
+
+
+
+                    '''inc = self.incidents.get(ev.assignedPatientId)
+                       if inc is not None:
+                        dest_grid_idx = ev.navdstGrid
+                        hospitals_in_grid = [
+                            h for h in self.hospitals.values()
+                            if h.gridIndex == dest_grid_idx
+                        ]
+                        
+                        # Use navigation service to select best hospital
+                        best_hospital = self.navigator.select_hospital(
+                            ev=ev,
+                            hospitals_in_grid=hospitals_in_grid,
+                            calculate_wait_func=self.calculate_eta_plus_wait
+                        )
+                        
+                        if best_hospital is not None:
+                            # Clear ETA (no longer traveling, now servicing)
+                            ev.navEtaMinutes = 0.0
+                        
+                        # Mark incident as resolved and clean up
+                        
                        
-                        ev.release_incident()
+                        ev.release_incident()'''
 
-
-                self.move_ev_to_grid(ev.id,ev.nextGrid)
+                if ev.nextGrid is not None:
+                    self.move_ev_to_grid(ev.id,ev.nextGrid)
 
             # 1) EV staying idle in its chosen grid
-            if ev.state == EvState.IDLE and ev.gridIndex == ev.sarns.get("action"):
-                ev.add_idle(8)
-
-            # 2) EV has been dispatched but no reward yet: move it to patient's grid
-            elif ev.status == "Dispatching" and ev.assignedPatientId is not None:
-                ev.state = EvState.BUSY
-                #dispatched += 1
-                #print("changed the status after dispatch for the EV", ev.id)
-                #inc = self.incidents.get(ev.assignedPatientId)
-        
-            # 3) Accepted reposition: execute energy/time cost + move
-            elif ev.status == "Repositioning" and ev.sarns.get("reward") is not None:
-                ev.execute_reposition()
-
-                # optional: reset status after move
-                # ev.status = "available"
-                # ev.nextGrid = None
-
-            elif ev.state == EvState.BUSY:
-                ev.add_busy(8)
+            if ev.state == EvState.IDLE:
+                if ev.gridIndex == ev.sarns.get("action"):
+                    #ev.add_idle(8)
+                    #print("beforee",ev.aggIdleTime,"evid",ev.id)
+                    ev.aggIdleTime += 8
+                    #print("after",ev.aggIdleTime,"evid",ev.id)
+                    #print("sucessful test for idle and stayed,dint add energy")
+                elif ev.status == "Repositioning" or ev.sarns.get("reward") is not None:
+                    #ev.execute_reposition()
+                    ev.aggIdleEnergy += 0.12  # Fixed energy cost for repositioning from one grid to another
+                    ev.aggIdleTime += 8.0  
+                    #print("i guess its done?")
+                    #print("sucessful test for idle and repositioning")
+                #elif ev.status == "Dispatching" and ev.assignedPatientId is not None:
+                    #ev.state = EvState.BUSY
+                    #print("sucessful test for idle and dispatching, changed state")
+            else:
+                #ev.add_busy(8)
+                #print("busy time before",ev.aggBusyTime,"evid",ev.id)
+                ev.aggBusyTime  += 8
+                
+                # Decrement wait time for BUSY EVs by 8 minutes each tick
+                if ev.nextGrid == ev.navdstGrid and ev.navWaitTime > 0:
+                    ev.navWaitTime = max(0.0, ev.navWaitTime - dt_minutes)
+                
+                #print("busy time after",ev.aggBusyTime,"evid",ev.id)
+                #print("sucessful test for navigating")
 
                 '''
                 hc_id = ev.navTargetHospitalId

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Optional, List, Tuple, Dict, Any
+import random
 
 LatLng = Tuple[float, float]
 
@@ -20,14 +21,15 @@ class EV:
     nextGrid: Optional[int] = None
     status: str = "Idle"
     assignedPatientId: Optional[int] = None
-
+    assignedPatientPriority: int = 0  # 1 to 3  inclusive for pri
+    metric = []
     aggIdleTime: float = 0.0
     aggIdleEnergy: float = 0.0
     aggBusyTime: float = 0.0
     navTargetHospitalId: int | None = None  # hospital currently chosen for navigation
     navdstGrid: int | None = None        # grid index of that hospital
     navEtaMinutes: float = 0.0              # latest ETA to that hospital
-    navUtility: float = 0.0                 
+    navWaitTime: float = 0.0                 
 
     # sarns now a dict, as requested
     sarns: Dict[str, Any ] = field(default_factory=dict)
@@ -47,7 +49,8 @@ class EV:
         self.nextGrid = None
         self.navTargetHospitalId = None
         self.navEtaMinutes = 0.0
-        self.navUtility = 0.0
+        self.navdstGrid = None
+        self.navWaitTime = 0.0
 
     def move_to(self, grid_index: int, new_loc: LatLng) -> None:
         self.gridIndex = grid_index
@@ -57,6 +60,7 @@ class EV:
         self.state = new_state
 
     def add_idle(self, dt: float) -> None:
+        print("added idle time for staying")
         self.aggIdleTime += dt
         self.aggIdleEnergy += 0.012
         
@@ -71,7 +75,8 @@ class EV:
         Execute the reposition decision made in this tick.
         This should be called after move_to() has been invoked by MAP.
         """
-        print(f"[DBG] execute_reposition called for EV {self.id}")
+        print("entered execute rep added 8 and 0.12")
+        #print(f"[DBG] execute_reposition called for EV {self.id}")
         self.aggIdleEnergy += 0.12  # Fixed energy cost for repositioning from one grid to another
         self.aggIdleTime += 8.0       # Fixed time cost for repositioning from one grid to another
     
@@ -84,6 +89,7 @@ class EV:
             "state": self.state.name,
             "status": self.status,
             "assignedPatientId": self.assignedPatientId,
+            "assignedPatientPriority": self.assignedPatientPriority,
             "aggIdleTime": self.aggIdleTime,
             "aggIdleEnergy": self.aggIdleEnergy,
             "sarns": self.sarns,

@@ -24,6 +24,7 @@ class RepositioningService:
         incidents: Dict) -> None:
         # Group offers by destination grid
         offers_by_g = defaultdict(list)  # g_idx -> list[(utility, ev_id)]
+        #print("fun call into repositioning")
         for g_idx, g in grids.items():
             neighbour_evs = []
             
@@ -58,6 +59,7 @@ class RepositioningService:
                 # and record the reposition utility as reward
                 #v_obj.execute_reposition()
                 v_obj.status = "Repositioning"
+                #print("set the status to rep vid", v_obj.id,"status",v_obj.status)
                 v_obj.sarns["reward"] = u_val
                 #print("reward griven after acceptance", v_obj.sarns["reward"])
                 v_obj.nextGrid = g_idx
