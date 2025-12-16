@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple, Dict, Any
 import math
+import numpy as np
 
 LatLng = Tuple[float, float]
 
@@ -16,16 +17,34 @@ class Hospital:
     services: List[str] = field(default_factory=list)
 
     queue: List[int] = field(default_factory=list)          # patient ids
-    currentEvId: Optional[int] = None
+    evs_serving_priority_1: List[int] = field(default_factory=list)  # EVs serving priority 1 patients
+    evs_serving_priority_2: List[int] = field(default_factory=list)  # EVs serving priority 2 patients
+    evs_serving_priority_3: List[int] = field(default_factory=list)  # EVs serving priority 3 patients
 
     def enqueue_patient(self, patient_id: int) -> None:
         self.queue.append(patient_id)
 
-    def start_service(self, ev_id: int) -> None:
-        self.currentEvId = ev_id
+    def start_service(self, ev_id: int, priority: int) -> None:
+        """Start service with an EV for a patient of given priority."""
+        if priority == 1:
+            self.evs_serving_priority_1.append(ev_id)
+        elif priority == 2:
+            self.evs_serving_priority_2.append(ev_id)
+        elif priority == 3:
+            self.evs_serving_priority_3.append(ev_id)
 
-    def finish_service(self) -> Optional[int]:
-        self.currentEvId = None
+    def finish_service(self, ev_id: int, priority: int) -> Optional[int]:
+        """Finish service for an EV serving a patient of given priority."""
+        if priority == 1:
+            if ev_id in self.evs_serving_priority_1:
+                self.evs_serving_priority_1.remove(ev_id)
+        elif priority == 2:
+            if ev_id in self.evs_serving_priority_2:
+                self.evs_serving_priority_2.remove(ev_id)
+        elif priority == 3:
+            if ev_id in self.evs_serving_priority_3:
+                self.evs_serving_priority_3.remove(ev_id)
+        
         if self.queue:
             return self.queue.pop(0)
         return None
@@ -55,11 +74,13 @@ class Hospital:
         c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
         return R * c
     
-    def estimate_eta_minutes(self, lat2: float, lng2: float, kmph: float = 40.0) -> float:
+    def estimate_eta_minutes(self, lat2: float, lng2: float, kmph : float) -> float:
         """
         Estimate ETA (in minutes) from this hospital to a point (lat2, lng2)
         at a constant average speed.
         """
+        kmph = np.clip(np.random.normal(40.0, 5.0), 20.0, 80.0)
+        #print("speed ",kmph)
         km = self.haversine_distance_km(lat2, lng2)
         return 60.0 * km / max(kmph, 1e-6)
     
@@ -123,5 +144,7 @@ class Hospital:
             "waitTime": self.waitTime,
             "services": list(self.services),
             "queueLen": len(self.queue),
-            "currentEvId": self.currentEvId,
+            "evs_serving_priority_1": list(self.evs_serving_priority_1),
+            "evs_serving_priority_2": list(self.evs_serving_priority_2),
+            "evs_serving_priority_3": list(self.evs_serving_priority_3),
         }

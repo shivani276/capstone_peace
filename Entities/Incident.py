@@ -4,7 +4,8 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Optional, Tuple
 from datetime import datetime
-
+import math
+import numpy as np
 
 class IncidentStatus(Enum):
     UNASSIGNED = auto()
@@ -32,7 +33,7 @@ class Incident:
     timestamp: datetime
     location: LatLng
     dropLocation: Optional[LatLng] = None
-    priority: Priority = Priority.MED
+    priority: int = 1
     status: IncidentStatus = IncidentStatus.UNASSIGNED
     waitTime: float = 0.0
     serviceTime: float = 0.0
@@ -79,12 +80,37 @@ class Incident:
         Higher priority and longer waits = higher urgency.
         """
         priority_weight = {
-            Priority.LOW: 1.0,
-            Priority.MED: 2.0,
-            Priority.HIGH: 3.0,
-            Priority.CRIT: 4.0,
+            1: 1.0,  # LOW
+            2: 2.0,  # MED
+            3: 3.0,  # HIGH
         }
         return priority_weight.get(self.priority, 1.0) * (1.0 + self.waitTime / 30.0)
+    
+    def haversine_distance_km(self, lat2: float, lng2: float) -> float:
+        """
+        Calculate great-circle distance in km from this hospital to a point (lat2, lng2).
+        Uses Haversine formula.
+        """
+        R = 6371.0  # Earth radius in km
+        lat1, lng1 = self.location
+        
+        dlat = math.radians(lat2 - lat1)
+        dlng = math.radians(lng2 - lng1)
+        a = (math.sin(dlat/2)**2 + 
+             math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * 
+             math.sin(dlng/2)**2)
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+        return R * c
+    
+    def estimate_eta_minutes(self, lat2: float, lng2: float, kmph : float) -> float:
+        """
+        Estimate ETA (in minutes) from this hospital to a point (lat2, lng2)
+        at a constant average speed.
+        """
+        kmph = np.clip(np.random.normal(40.0, 5.0), 20.0, 80.0)
+        #print("speed ",kmph)
+        km = self.haversine_distance_km(lat2, lng2)
+        return 60.0 * km / max(kmph, 1e-6)
 
     def to_dict(self) -> dict:
         return {
@@ -93,7 +119,7 @@ class Incident:
             "timestamp": self.timestamp.isoformat(),
             "location": self.location,
             "dropLocation": self.dropLocation,
-            "priority": self.priority.name,
+            "priority": self.priority,
             "status": self.status.name,
             "waitTime": self.waitTime,
             "serviceTime": self.serviceTime,
