@@ -47,7 +47,7 @@ class Controller:
         self.response_time_profile = response_time_profile
         self.test_mode = test_mode
         #self.repositioning_service = RepositioningService(alpha=alpha) #for the paper
-        self.repositioning_service = RepositioningService(self.env)
+        self.repositioning_service = RepositioningService()
 
         print("[DEBUG] hospitals at Controller init:", len(self.env.hospitals))
         self.ticks_per_ep = ticks_per_ep
@@ -130,7 +130,9 @@ class Controller:
         self._spawn_success = 0
         self.pretty = True
         self.debug_dispatch = False
-        self.repositioning_service.build_predicted_demand(self.df, self.env)
+        self.repositioning_service.build_historical_demand(self.df, self.env)
+
+        #self.repositioning_service.build_predicted_demand(self.df, self.env)
     
     def _get_direction_neighbors_for_index(self, index: int) -> list[int]:
         n_rows = len(self.env.lat_edges) - 1
@@ -584,7 +586,8 @@ class Controller:
             ui = self.repositioning_service.calculate_grid_urgency(
             grid_id=g_idx,
             grids=self.env.grids,
-            df=self.df
+            #df=self.df
+            mean_demand=self.mean_demand
         )
 
             print(f"  Grid {g_idx}: urgency={ui:.3f}")

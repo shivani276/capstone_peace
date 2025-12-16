@@ -35,7 +35,7 @@ class RepositioningService:
                 v.nextGrid   = g_idx
                 print(f"[Check] EV {v.id} repositioning → Grid {g_idx} | demand={grid_demand} | mean={mean_demand}")
                 v.sarns["reward"] = u
-''' 
+
 # services/repositioning.py
 """
 This paper does urgency-based redeployment for ambulance repositioning.
@@ -44,13 +44,6 @@ What the below code should do ->
     - Grid urgency calculation
     - Redeployment of idle EVs to urgent grids using distance matching
 """
-#all imports
-from typing import Dict, List, Tuple
-import math
-
-from Entities.ev import EV, EvState
-from utils.Helpers import utility_repositioning, point_to_grid_index #our utility fn (not using it tho), mapping (lat,lon) to grid index
-from MAP_env import Grid # Need grid cuz AS are grids
 
 
 class RepositioningService: #centralisaed repostioining 'controller' - paper says the same
@@ -164,15 +157,177 @@ class RepositioningService: #centralisaed repostioining 'controller' - paper say
 
             # Assign closest EVs
             assigned = idle_evs[:cap]
-#NOT RL BASED REWARD SHOULDN'T BE THEREEEEEE
+''' 
+# services/repositioning.py
+#all imports
+from typing import Dict
+import math
+
+from Entities.ev import EV, EvState
+from utils.Helpers import utility_repositioning, point_to_grid_index #our utility fn (not using it  directly tho), mapping (lat,lon) to grid index
+from MAP_env import Grid # Need grid cuz AS are grids
+
+
+class RepositioningService: #centralisaed repostioining 'controller' - paper says the same
+    """
+    What the below code should do
+    - Historical + real-time demand estimation
+    - Urgency index calculation (paper's D1-D5 factors)
+    - Two-stage redeployment:
+        1) Select most urgent stations
+        2) Assign nearest idle EVs
+    """
+
+    def __init__(self):
+        self.historical_demand = {} # Historical demand per grid (from dataset)        
+        self.last_urgencies = {} # Stored only for debugging / verification
+
+
+    # HISTORICAL DEMAND PART
+
+    def build_historical_demand(self, df, env):
+        #Builds historical demand per grid from dataset
+        self.historical_demand = {g: 0 for g in env.grids.keys()}
+
+        for _, row in df.iterrows(): #iterate thru full dataset
+            lat = row.get("Latitude")
+            lng = row.get("Longitude")
+            if lat is None or lng is None:
+                continue
+
+            gidx = point_to_grid_index(lat, lng, env.lat_edges, env.lng_edges) #get gris index from lat,lon
+            if gidx is not None and gidx >= 0:
+                self.historical_demand[gidx] += 1 #counter incrementation
+
+    # ============================================================
+    # TRAVEL TIME (Paper uses travel time, not Euclidean distance)
+    # ============================================================
+    @staticmethod
+    def haversine_km(lat1, lon1, lat2, lon2):
+        R = 6371.0
+        dlat = math.radians(lat2 - lat1)
+        dlon = math.radians(lon2 - lon1)
+        a = (
+            math.sin(dlat / 2) ** 2
+            + math.cos(math.radians(lat1))
+            * math.cos(math.radians(lat2))
+            * math.sin(dlon / 2) ** 2
+        )
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+        return R * c
+
+    def travel_time_minutes(
+        self, lat1, lon1, lat2, lon2, kmph: float = 40.0
+    ):
+        km = self.haversine_km(lat1, lon1, lat2, lon2)
+        return 60.0 * km / max(kmph, 1e-6)
+
+    # URGENCY INDEX CALCULATION
+    def calculate_grid_urgency(self, grid_id, grids, mean_demand):
+        """
+        Urgency Index ≈
+        Factors the paper used
+        - Expected demand 
+        - Available ambulances 
+        - Geographical location
+        """
+
+        g = grids[grid_id]
+        # Live demand
+        live_demand = len(g.incidents)
+        # Historical demand
+        hist_demand = self.historical_demand.get(grid_id, 0)
+        # Combine (simple linear combination)
+        expected_demand = live_demand + hist_demand
+
+        # ONLY IDLE EVs count as coverage
+        idle_evs = [
+            ev for ev in g.evs
+            if ev in g.evs
+        ]
+        idle_count = sum(
+            1 for ev_id in g.evs
+            if g.evs and ev_id is not None
+        )
+
+        # Urgency grows when demand high & idle EVs low
+        urgency = expected_demand / (idle_count + 1)
+        return float(urgency)
+
+    # DISTANCE / ETA FROM EV TO GRID
+    def ev_to_grid_eta(self, ev: EV, grid_id, grids):
+        #ETA-based distance, as required by the paper
+        g = grids[grid_id]
+        lat_g, lon_g = g.center1d
+        lat_e, lon_e = ev.location
+
+        return self.travel_time_minutes(
+            lat_e, lon_e, lat_g, lon_g
+        )
+
+    # PERFORMING REDEPLOYMENT BASED ON THE URGENCY INDEX
+    def urgency_based_redeployment(
+        self,
+        evs: Dict[int, EV],
+        grids : Dict[int, "Grid"],
+        incidents : Dict,
+        mean_demand: float,
+    ):
+        """
+        To be covered
+        1) Identify AS grids (demand > mean demand)
+        2) Compute urgency index
+        3) Sort AS grids by urgency
+        4) Assign nearest idle EVs (min ETA)
+        """
+        #1) Identify AS grids
+
+        as_grids = [g_idx for g_idx, g in grids.items()
+            if len(g.incidents) > mean_demand]
+
+        if not as_grids:
+            return
+
+        # 2) Compute urgency for AS grids
+        urgencies = {}
+        for g_idx in as_grids:
+            urgencies[g_idx] = self.calculate_grid_urgency(
+                g_idx, grids, mean_demand
+            )
+
+        self.last_urgencies = urgencies #for debugging later in the controller
+        # 3) Sort by urgency [descending cuz higher urgency needs to be addressed first]
+        as_sorted = sorted(as_grids, key=lambda x: urgencies[x], reverse=True)
+
+        # 4) Collect IDLE EVs
+        idle_evs = [ev for ev in evs.values()
+            if ev.state == EvState.IDLE and ev.status == "Idle"]
+
+        if not idle_evs:
+            return
+
+        # 5) Assign EVs
+        for g_idx in as_sorted:
+            g = grids[g_idx]
+
+            # Number of EVs needed (using the imbalance)
+            cap = max(0, g.imbalance)
+            if cap == 0:
+                continue
+
+            # Sort EVs by ETA to this grid
+            idle_evs.sort(
+                key=lambda ev: self.ev_to_grid_eta(ev, g_idx, grids)
+            )
+
+            assigned = idle_evs[:cap]
+
             for ev in assigned:
-                u = utility_repositioning(ev.aggIdleTime, ev.aggIdleEnergy)
-
-                # mark redeployment
                 ev.status = "Repositioning"
-                ev.nextGrid = g_id
-                ev.sarns["reward"] = u
-                ev.sarns["just_redeployed"] = False   # updated in Controller after move
-
-            # Remove assigned EVs from pool
+                ev.nextGrid = g_idx
+                ev.sarns["reward"] = utility_repositioning(
+                    ev.aggIdleTime, ev.aggIdleEnergy
+                )
+                #ev.sarns["just_redeployed"] = False   # updated in Controller after move
             idle_evs = idle_evs[cap:]
+        

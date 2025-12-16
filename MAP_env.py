@@ -62,7 +62,7 @@ class MAP:
 
         # Initialize services
         self.dispatcher = DispatcherService()
-        self.repositioner = RepositioningService(self)
+        self.repositioner = RepositioningService()
         self.navigator = NavigationService()
 
         # Build grid topology
@@ -76,10 +76,22 @@ class MAP:
         n_cols = len(lng_edges) - 1
 
         # Create all grid cells
+#        for r in range(n_rows):
+#            for c in range(n_cols):
+#                idx = r * n_cols + c
+#                self.grids[idx] = Grid(index=idx)
         for r in range(n_rows):
             for c in range(n_cols):
                 idx = r * n_cols + c
-                self.grids[idx] = Grid(index=idx)
+                g = Grid(index=idx)
+
+                # compute grid center (lat, lng)
+                lat_c = (lat_edges[r] + lat_edges[r + 1]) / 2.0
+                lng_c = (lng_edges[c] + lng_edges[c + 1]) / 2.0
+                g.center1d = (lat_c, lng_c)
+
+                self.grids[idx] = g
+
 
         # Connect 8-neighbors
         for r in range(n_rows):
