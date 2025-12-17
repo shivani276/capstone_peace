@@ -222,13 +222,15 @@ class MAP:
         if not getattr(self, "hospitals", None):
             print("[MAP] No hospitals to reset waits for.")
             return
+        number = 0
         for hc in self.hospitals.values():
            # hc.waitTime = math.exp(13)
+            number += 1
             rng = np.random.default_rng()
             lam = H_MIN + H_MAX / 2.0 # mean
             hc.waitTime = rng.exponential(13) #poisson dist with mean
             #print(f"[MAP] Hospital waits initialised in [{hc.id}, {hc.waitTime}] minutes.")
-
+        print("number of hcs",number)
     '''def tick_hospital_waits(self, lam: float = 0.04, wmin: float = 5.0, wmax: float = 90.0, seed: int | None = None) -> None:
         """Update hospital wait times with random exponential drift."""
         if not getattr(self, "hospitals", None):
@@ -425,7 +427,7 @@ class MAP:
                                 h.evs_serving_priority_2.append(ev.id)
                             else:
                                 h.evs_serving_priority_3.append(ev.id)
-                            ev.navWaitTime -= 8.0
+                            ev.navWaitTime -= 8.0    #is this service time?
                             if ev.navWaitTime <= 0.0:
                                 if ev.assignedPatientId is not None:
                                     inc = self.incidents.get(ev.assignedPatientId)
@@ -464,7 +466,7 @@ class MAP:
                        
                         ev.release_incident()'''
 
-                if ev.nextGrid is not None:
+                if ev.nextGrid !=-1 and ev.nextGrid != None :
                     self.move_ev_to_grid(ev.id,ev.nextGrid)
 
             # 1) EV staying idle in its chosen grid
