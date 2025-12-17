@@ -603,13 +603,20 @@ class Controller:
                 ev.sarns["action"] = slo
                 dest_grid = grid_ids[slo]
                 ev.nextGrid = self.env.next_grid_towards(ev.gridIndex, dest_grid)
-                ev.navEtaMinutes += best_hospital.estimate_eta_minutes(ev.location[0], ev.location[1], 40.0)
-                ev.aggBusyTime += best_hospital.estimate_eta_minutes(ev.location[0], ev.location[1], 40.0)
+
+                best_hospital = None
+
                 if ev.nextGrid == -1:
-                        best_hospital = self.env.select_hospital(ev, list(self.env.hospitals.values()), self.env.calculate_eta_plus_wait)   
+                    hospitals_in_grid = [h for h in self.env.hospitals.values() if h.gridIndex == dest_grid]
+                    if hospitals_in_grid:
+                        best_hospital = self.env.select_hospital(ev, hospitals_in_grid, self.env.calculate_eta_plus_wait)
+                    else:
+                        best_hospital = self.env.select_hospital(ev, list(self.env.hospitals.values()), self.env.calculate_eta_plus_wait)
+
+                    if best_hospital is not None:
                         ev.navTargetHospitalId = best_hospital.id
-                        ev.navWaitTime = self.env.calculate_eta_plus_wait(ev, best_hospital) 
-                        
+                        ev.navWaitTime = self.env.calculate_eta_plus_wait(ev, best_hospital)
+
                 
                 #  REWARD CALCULATION
                 '''candidate_hs = [
