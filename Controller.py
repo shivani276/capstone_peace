@@ -611,6 +611,8 @@ class Controller:
                 #print("navigation actions", a_gi)
                 ev.sarns["action"] = slo
                 an_t  = ev.sarns.get("action")
+                #(ev.navWaitTime)
+                ev.sarns["reward"] = utility_navigation(ev.navWaitTime)
                 rn_t  = ev.sarns.get("reward")
                 dest_grid = grid_ids[slo]
                 ev.nextGrid = self.env.next_grid_towards(ev.gridIndex, dest_grid)

@@ -78,7 +78,7 @@ class NavigationService:
     def select_hospital(
         ev: EV,
         #incident: Incident,
-        hospitals_in_grid: list,
+        hospitals_in_grid: Hospital,
         calculate_wait_func
     ) -> Hospital:
         """
@@ -97,7 +97,7 @@ class NavigationService:
         
         # Pick hospital with minimum total wait (eta + queue)
         best_hospital = min(
-            hospitals_in_grid.values(),
+            hospitals_in_grid,
             key=lambda h: calculate_wait_func(ev, h)
         )
         
