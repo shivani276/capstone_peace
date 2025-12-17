@@ -177,11 +177,11 @@ def _safe_norm(x: float, xmin: float, xmax: float, invert: bool = False) -> floa
     return 1.0 - n if invert else n
 '''
 #Navigation utility
-def utility_navigation(R_busy: float, R_min: float = 0.0, R_max: float = R_MAX) -> float:
-  if R_busy < R_min:
+def utility_navigation(R_busy: float, H_min: float = 0.0, H_max: float = H_MAX) -> float:
+  if R_busy < H_min:
     U_N =1
-  elif R_min<R_busy<R_max:
-    U_N = (R_busy-R_min)/(R_max-R_min)
+  elif H_min<R_busy< H_max:
+    U_N = (R_busy-H_min)/(H_max-H_min)
   else:
     U_N =0
   return U_N

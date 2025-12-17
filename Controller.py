@@ -722,7 +722,7 @@ class Controller:
                 #sn_t = torch.as_tensor(sn_t, dtype=torch.float32, device=self.device).view(-1)
                 st_2_n = torch.as_tensor(st_2_n, dtype=torch.float32, device=self.device).view(-1)
                 self.buffer_navigation.push(sn_t, an_t, rn_t, st_2_n, done_t)
-                print("Navigation transition pushed:",  ev.id, rn_t)
+                print("Navigation transition pushed:",  ev.id, ev.navWaitTime)
                 #print(" tensor pushed for nav",st_2_n,)
                 if len(self.buffer_navigation) >= 1000:
                     Sn, An, Rn, S2n, Dn = self.buffer_navigation.sample(64, self.device)
