@@ -360,7 +360,7 @@ class MAP:
         """
         return self.navigator.calculate_eta_plus_wait(ev, hospital)
 
-    def select_hospital(self, ev: EV, hospitals_in_grid: list, calculate_wait_func) -> Hospital:
+    def select_hospital(self, ev: EV, hospitals_in_grid, calculate_wait_func) -> Hospital:
         """
         Select the best (nearest) hospital for a patient incident.
         
