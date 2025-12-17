@@ -97,7 +97,7 @@ class NavigationService:
         
         # Pick hospital with minimum total wait (eta + queue)
         best_hospital = min(
-            hospitals_in_grid,
+            hospitals_in_grid.values(),
             key=lambda h: calculate_wait_func(ev, h)
         )
         

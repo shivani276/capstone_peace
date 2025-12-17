@@ -92,6 +92,7 @@ class Controller:
 
             # --- NAV: one feature and one action per hospital grid ---
             self.hc_grids = sorted({h.gridIndex for h in self.env.hospitals.values()})
+            
             nav_action_dim = len(self.hc_grids)
 
             if nav_action_dim == 0:
@@ -117,7 +118,7 @@ class Controller:
             print("  Device:", self.device)
         else:
             print("[Controller] test_mode enabled: skipping heavy DQN initialisation")
-
+        print("number of grids with hcs",len(self.hc_grids))
         self.df = pd.read_csv(csv_path)
         self.time_col = time_col
         self.lat_col = lat_col
@@ -219,6 +220,7 @@ class Controller:
         return vec
     
     def build_state_nav1(self, ev):
+        
         # 1) Use precomputed hospital grids
         hc_grids = getattr(self, "hc_grids", None)
         if not hc_grids:
@@ -253,6 +255,7 @@ class Controller:
             mean_wait = grid_mean_wait[g_idx]
             state_vec.append(mean_wait)
         
+        #print("shape of vector",len(grid_ids))
         return state_vec, grid_ids
 
     '''def build_state_nav(self, ev) -> list[float]:
@@ -574,7 +577,9 @@ class Controller:
         # 2) build states and actions for IDLE EVs
         for ev in self.env.evs.values():
             if ev.state == EvState.IDLE and ev.status == "Idle":
+
                 state_vec = self._build_state(ev)
+                sr_t = torch.as_tensor(state_vec, dtype=torch.float32, device=self.device).view(-1)
                 ev.sarns["state"] = state_vec
                 a_gi = self._select_action(state_vec, ev.gridIndex)
                 ev.sarns["action"] = a_gi
@@ -593,14 +598,20 @@ class Controller:
         # collect per-tick navigation actions
         nav_actions: list = []
         for ev in self.env.evs.values():
+            
             if ev.state == EvState.BUSY and ev.status == "Navigation":
+                ev.sarns["state"] = []
                 state_vec,grid_ids = self.build_state_nav1(ev) #this is the same as idle
+                sn_t = torch.as_tensor(state_vec, dtype=torch.float32, device=self.device).view(-1)
                 #replace this with the below navigation state builder
                 #state_vec = self.build_state_nav(ev)
                 ev.sarns["state"] = state_vec
+                #print("lenght of getting state",len(ev.sarns["state"]))
                 slo = self._select_nav_action(state_vec)
                 #print("navigation actions", a_gi)
                 ev.sarns["action"] = slo
+                an_t  = ev.sarns.get("action")
+                rn_t  = ev.sarns.get("reward")
                 dest_grid = grid_ids[slo]
                 ev.nextGrid = self.env.next_grid_towards(ev.gridIndex, dest_grid)
 
@@ -680,34 +691,37 @@ class Controller:
                 #append this into the push rep trans, remove s2 from there
                 #self._push_reposition_transition(ev)
 
-                sr_t  = ev.sarns.get("state")
+                #sr_t  = ev.sarns.get("state") 
                 ar_t  = ev.sarns.get("action")
                 rr_t  = ev.sarns.get("reward")
                 st_2_r = self._build_state(ev)
                 doner_t = bool(1)
-                sr_t = torch.as_tensor(sr_t, dtype=torch.float32, device=self.device).view(-1)
+                #sr_t = torch.as_tensor(sr_t, dtype=torch.float32, device=self.device).view(-1)
                 st_2_r = torch.as_tensor(st_2_r, dtype=torch.float32, device=self.device).view(-1) 
                 self.buffer_reposition.push(sr_t, ar_t, rr_t, st_2_r, doner_t)
+                print("rep transition pushed:",  ev.id,rr_t)
+                #print("pushed for rep",ev.id)
+                
                 
                 
                 if len(self.buffer_reposition) >= 1000:
                     Sr, Ar, Rr, S2r, Dr = self.buffer_reposition.sample(64, self.device)
                 
             elif ev.state == EvState.BUSY and ev.status == "Navigation" :
-                s_t  = ev.sarns.get("state")
-                a_t  = ev.sarns.get("action")
-                r_t  = ev.sarns.get("reward")
-                wits,_ = self.build_state_nav1(ev)
-                if s_t is None or a_t is None or r_t is None:
-                    continue
-                st_2_n = wits
-                done_t = bool(1)
-                s_t = torch.as_tensor(s_t, dtype=torch.float32, device=self.device).view(-1)
-                st_2_n = torch.as_tensor(st_2_n, dtype=torch.float32, device=self.device).view(-1)
-               
-                self.buffer_navigation.push(s_t, a_t, r_t, st_2_n, done_t)
-                print("Navigation transition pushed:", s_t, a_t, r_t, st_2_n, done_t)
+                #sn_t  = ev.sarns.get("state") #checked size = 4
                 
+                #an_t  = ev.sarns.get("action")
+                #rn_t  = ev.sarns.get("reward")
+                wits, grids_ids = self.build_state_nav1(ev) #checked size = 4
+                if sn_t is None or an_t is None or rn_t is None:
+                    continue
+                st_2_n = wits #size =4
+                done_t = bool(1)
+                #sn_t = torch.as_tensor(sn_t, dtype=torch.float32, device=self.device).view(-1)
+                st_2_n = torch.as_tensor(st_2_n, dtype=torch.float32, device=self.device).view(-1)
+                self.buffer_navigation.push(sn_t, an_t, rn_t, st_2_n, done_t)
+                print("Navigation transition pushed:",  ev.id, rn_t)
+                #print(" tensor pushed for nav",st_2_n,)
                 if len(self.buffer_navigation) >= 1000:
                     Sn, An, Rn, S2n, Dn = self.buffer_navigation.sample(64, self.device)
         emv = self.env.evs[1]
