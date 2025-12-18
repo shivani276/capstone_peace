@@ -604,7 +604,7 @@ ctrl._tick(0)   # or ctrl._tick(step_idx) if your signature is like that
 ctrl.epsilon = old_eps
 
 print("========== END _tick NAV TEST ==========\n")'''
-
+'''
 import pandas as pd
 from utils.Helpers import load_calls  # your helper :contentReference[oaicite:1]{index=1}
 
@@ -630,3 +630,146 @@ df_test  = df_all[days.isin(test_days)].copy()
 print("Train rows:", len(df_train), "Test rows:", len(df_test))
 print("Train days:", len(train_days), "Test days:", len(test_days))
 
+'''
+
+
+
+import random
+import math
+from MAP_env import MAP
+from game_controller import GameTheoryController
+
+# --- 1. Define a Mock Hospital Class ---
+# This acts exactly like a real Hospital object but we create it on the fly.
+class MockHospital:
+    def __init__(self, h_id, grid_index, lat, lng):
+        self.id = h_id
+        self.gridIndex = grid_index
+        self.location = (lat, lng)
+        self.waitTime = 0.0  # Start with 0 wait
+        
+        # Stats for the Game Theory Score
+        self.total_served_count = 0
+        self.accumulated_total_time = 0.0
+
+    def estimate_eta_minutes(self, u_lat, u_lng, kmph=40.0):
+        """Simple distance estimation (Euclidean approx for speed)"""
+        # Approx: 1 degree lat ~= 111 km
+        d_lat = self.location[0] - u_lat
+        d_lng = self.location[1] - u_lng
+        # Euclidean distance in degrees * 111km/deg
+        dist_km = math.sqrt(d_lat**2 + d_lng**2) * 111.0
+        
+        hours = dist_km / max(1.0, kmph)
+        return hours * 60.0  # Minutes
+
+# ---------------------------------------
+
+def find_nash_equilibrium():
+    print("--- INITIALIZING ENVIRONMENT ---")
+    
+    # 1. Initialize Env
+    # Use your config path, or if you don't have one, try empty MAP() 
+    # but you said you have 9 grids, so likely the MAP loads them.
+    try:
+        env = MAP(grid_config_path="Data/grid_config_2d.json")
+    except TypeError:
+        # Fallback if your code changed to not need args
+        env = MAP()
+        
+    
+
+    # --- 2. THE FIX: Auto-Generate Hospitals from Grids ---
+    if len(env.hospitals) == 0:
+        print(f"DEBUG: No hospitals found. Auto-generating 1 hospital per grid...")
+        
+        # Calculate grid dimensions based on edges
+        # standard MAP_env usually stores these as lists of floats
+        n_cols = len(env.lng_edges) - 1
+        
+        for g_id in env.grids.keys():
+            # 1. Calculate Row and Col from Grid Index
+            # Row = Index // Columns
+            # Col = Index % Columns
+            row_idx = g_id // n_cols
+            col_idx = g_id % n_cols
+            
+            # 2. Get Boundaries from env edges
+            # lat_edges is likely [min, ..., max] or [max, ..., min]
+            # We just need the bounds for this specific row/col
+            try:
+                lat_1 = env.lat_edges[row_idx]
+                lat_2 = env.lat_edges[row_idx + 1]
+                lng_1 = env.lng_edges[col_idx]
+                lng_2 = env.lng_edges[col_idx + 1]
+                
+                # 3. Find Center
+                center_lat = (lat_1 + lat_2) / 2.0
+                center_lng = (lng_1 + lng_2) / 2.0
+                
+                # 4. Create Mock Hospital
+                h_obj = MockHospital(h_id=g_id, grid_index=g_id, lat=center_lat, lng=center_lng)
+                env.hospitals[g_id] = h_obj
+                
+            except IndexError:
+                print(f"Skipping Grid {g_id}: Indices out of bounds of lat/lng edges.")
+                continue
+
+        print(f"DEBUG: Successfully created {len(env.hospitals)} mock hospitals.")
+    # ------------------------------------------------------
+
+    # 3. Setup GT Controller
+    # (Ensure csv_path is correct for your incidents)
+    controller = GameTheoryController(env, 
+                                      ticks_per_ep=180, 
+                                      test_mode=True,
+                                      csv_path="Data\Fire_Department_and_Emergency_Medical_Services_Dispatched_Calls_for_Service_20251208.csv")
+    
+    # 4. Initialize Strategies
+    h_ids = list(env.hospitals.keys())
+    # Start everyone as 'A' (Accept) or Random
+    current_strategies = {h_id: random.choice(['A', 'R']) for h_id in h_ids}
+    
+    stable = False
+    iteration = 0
+    max_iter = 100 
+
+    print("\n--- STARTING NASH SEARCH ---")
+
+    while not stable and iteration < max_iter:
+        print(f"\nIteration {iteration} | Current Strategies: {current_strategies}")
+        stable = True 
+        
+        for h_id in h_ids:
+            # --- BASELINE ---
+            controller.set_strategies(current_strategies)
+            controller.run_test_episode(episode_idx=0) 
+            controller.update_hospital_stats()
+            scores_base = controller.get_final_scores()
+            my_score_base = scores_base.get(h_id, 0)
+            
+            # --- SWITCH EXPERIMENT ---
+            new_strat = 'R' if current_strategies[h_id] == 'A' else 'A'
+            test_strategies = current_strategies.copy()
+            test_strategies[h_id] = new_strat
+            
+            controller.set_strategies(test_strategies)
+            controller.run_test_episode(episode_idx=0)
+            controller.update_hospital_stats()
+            scores_new = controller.get_final_scores()
+            my_score_new = scores_new.get(h_id, 0)
+            
+            print(f"  H{h_id}: Current({current_strategies[h_id]})={my_score_base:.4f} vs New({new_strat})={my_score_new:.4f}")
+
+            if my_score_new > my_score_base:
+                print(f"  --> Hospital {h_id} switches to {new_strat}!")
+                current_strategies[h_id] = new_strat
+                stable = False 
+                
+        iteration += 1
+
+    print("\n--- EQUILIBRIUM REACHED ---")
+    print("Final Strategies:", current_strategies)
+
+if __name__ == "__main__":
+    find_nash_equilibrium()
