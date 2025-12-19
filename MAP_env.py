@@ -230,7 +230,7 @@ class MAP:
             lam = H_MIN + H_MAX / 2.0 # mean
             hc.waitTime = rng.exponential(13) #poisson dist with mean
             #print(f"[MAP] Hospital waits initialised in [{hc.id}, {hc.waitTime}] minutes.")
-        print("number of hcs",number)
+        #print("number of hcs",number)
     '''def tick_hospital_waits(self, lam: float = 0.04, wmin: float = 5.0, wmax: float = 90.0, seed: int | None = None) -> None:
         """Update hospital wait times with random exponential drift."""
         if not getattr(self, "hospitals", None):
@@ -433,11 +433,14 @@ class MAP:
                                     inc = self.incidents.get(ev.assignedPatientId)
                                     if inc is not None:
                                         inc.mark_resolved()
+                                        #print("ev got service",ev.id,"nav waittime",ev.navWaitTime,"busy time",ev.aggBusyTime,"state of ev",ev.state)
                                         ev.release_incident()
+                                        #print("ev got service",ev.id,"nav waittime",ev.navWaitTime,"busy time",ev.aggBusyTime,"state of ev",ev.state)
                                         g = self.grids.get(inc.gridIndex)
                                         if g is not None:
                                             g.remove_incident(inc.id)
                                             del inc
+                                ev.navWaitTime = 0.0
                                 
 
 
@@ -490,10 +493,13 @@ class MAP:
                 #ev.add_busy(8)
                 #print("busy time before",ev.aggBusyTime,"evid",ev.id)
                 ev.aggBusyTime  += 8
-                
+                #print("busy time after",ev.aggBusyTime,ev.id)
                 # Decrement wait time for BUSY EVs by 8 minutes each tick
                 if ev.nextGrid == ev.navdstGrid and ev.navWaitTime > 0:
+                    #print("eta before",ev.navWaitTime, ev.id)
                     ev.navWaitTime = max(0.0, ev.navWaitTime - dt_minutes)
+                    #print("eta after",ev.navWaitTime,"ev id",ev.id,"ev status",ev.status,"dst hc",ev.navTargetHospitalId,"ev in grid",ev.gridIndex,"ev dst grid",ev.navdstGrid,"\n")
+
                 
                 #print("busy time after",ev.aggBusyTime,"evid",ev.id)
                 #print("sucessful test for navigating")
