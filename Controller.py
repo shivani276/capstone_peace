@@ -594,7 +594,7 @@ class Controller:
         # collect per-tick navigation actions
         nav_actions: list = []
         for ev in self.env.evs.values():
-            if ev.state == EvState.IDLE and ev.status == "Idle":
+            if ev.state == EvState.IDLE :
 
                 state_vec = self._build_state(ev)
                 sr_t = torch.as_tensor(state_vec, dtype=torch.float32, device=self.device).view(-1)
@@ -602,7 +602,7 @@ class Controller:
                 a_gi = self._select_action(state_vec, ev.gridIndex)
                 ev.sarns["action"] = a_gi
             
-            elif ev.state == EvState.BUSY and ev.status == "Navigation":
+            elif ev.state == EvState.BUSY :
                 ev.sarns["state"] = []
                 state_vec,grid_ids = self.build_state_nav1(ev) #this is the same as idle
                 sn_t = torch.as_tensor(state_vec, dtype=torch.float32, device=self.device).view(-1)

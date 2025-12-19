@@ -245,7 +245,7 @@ class MAP:
     def next_grid_towards(self, from_idx: int, to_idx: int) -> int:
 
         if from_idx == to_idx:
-            return -1  # already there
+            return None  # already there
 
         n_rows = len(self.lat_edges) - 1
         n_cols = len(self.lng_edges) - 1
@@ -416,7 +416,7 @@ class MAP:
                     if ev.status == "Navigation" and ev.nextGrid is not None:
                         ev.navEtaMinutes -= 8
                         ev.aggBusyTime += 8
-                        if ev.nextGrid != -1:
+                        if ev.nextGrid != None:
                             self.move_ev_to_grid(ev.id, ev.nextGrid)                            
                             
                         elif max(0.0,ev.navEtaMinutes) == 0.0 and ev.navTargetHospitalId is not None:
