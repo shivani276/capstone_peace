@@ -51,7 +51,7 @@ class Grid:
 
             # Safely read the chosen action grid; if missing, assume "stay here"
             action_grid = ev.sarns.get("action", ev.gridIndex)
-
+           
             if (
                 ev.state == EvState.IDLE
                 and ev.status == "Idle"
@@ -76,7 +76,8 @@ class Grid:
         """
         unassigned = self.count_unassigned_incidents(incident_dict)
         idle_here = self.count_idle_available_evs(ev_dict)
-        return max(0, unassigned - idle_here)
+        imb = (unassigned - idle_here)
+        return imb
     
     def get_eligible_idle_evs(self, ev_dict: Dict[int, Any]) -> List[int]:
         """
