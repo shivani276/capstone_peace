@@ -47,16 +47,11 @@ class NavigationService:
         # Add service time of higher priority EVs
         total_additional_wait = 0.0
         num_evs1 = len(getattr(hospital, 'evs_serving_priority_1', []))
-        #print("number of p1 evs waiting at HC" ,hospital.id,"queue",num_evs1)
         num_evs2 = len(getattr(hospital, 'evs_serving_priority_2', []))
-        #print("number of p2 evs waiting at HC" ,hospital.id,"queue",num_evs2)
         num_evs3 = len(getattr(hospital, 'evs_serving_priority_3', []))
-        #print("number of p3 evs waiting at HC" ,hospital.id,"queue",num_evs3)
         for priority in range(1, ev_priority):
             if priority == 1:
                 total_additional_wait = num_evs1 * 8.0  # Assume 8 minutes per EV service
-                
-
             elif priority == 2:
                 total_additional_wait = (num_evs1 + num_evs2) * 8.0
             else: 
@@ -76,8 +71,6 @@ class NavigationService:
         
         # Total wait = base wait + service times of other EVs
         total_wait = base_wait + total_additional_wait
-        #print("wait time at",hospital.id,total_additional_wait,"priority",ev_priority)
-        #print("service times at hc",hospital.id,base_wait)
         
         return eta + total_wait
     
@@ -85,7 +78,7 @@ class NavigationService:
     def select_hospital(
         ev: EV,
         #incident: Incident,
-        hospitals_in_grid: Hospital,
+        hospitals_in_grid: list,
         calculate_wait_func
     ) -> Hospital:
         """
