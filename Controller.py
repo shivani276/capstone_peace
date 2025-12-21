@@ -688,7 +688,7 @@ class Controller:
                 sr_t = torch.as_tensor(sr_t, dtype=torch.float32, device=self.device).view(-1)
                 st_2_r = torch.as_tensor(st_2_r, dtype=torch.float32, device=self.device).view(-1) 
                 self.buffer_reposition.push(sr_t, ar_t, rr_t, st_2_r, doner_t)
-                print("Repositioning transition pushed:",  ev.id, "state",sr_t,"next state",st_2_r,"\n")
+                #print("Repositioning transition pushed:",  ev.id, "state",sr_t,"next state",st_2_r,"\n")
             elif ev.state == EvState.BUSY and ev.status == "Navigation" :
                 #sn_t  = ev.sarns.get("state") #checked size = 4
                 
@@ -702,7 +702,7 @@ class Controller:
                 #sn_t = torch.as_tensor(sn_t, dtype=torch.float32, device=self.device).view(-1)
                 st_2_n = torch.as_tensor(st_2_n, dtype=torch.float32, device=self.device).view(-1)
                 self.buffer_navigation.push(sn_t, an_t, rn_t, st_2_n, done_t)
-                print("Navigation transition pushed:",  ev.id, "state",sn_t,"next state",st_2_n,"\n")
+                #print("Navigation transition pushed:",  ev.id, "state",sn_t,"next state",st_2_n,"\n")
                 if len(self.buffer_reposition) >= 1000:
                     Sr, Ar, Rr, S2r, Dr = self.buffer_reposition.sample(64, self.device)
                 
@@ -1002,11 +1002,11 @@ class Controller:
             if a_gi == ev.nextGrid and ev.status == "Repositioning" :
                 offers += 1
         return offers
-    def _tick_check(self, t: int) -> dict:
+    def _tick_check(self, t: int) :
             
             self.slot_idle_time = []
             self.slot_idle_energy = []
-            self.list_metrics = {} #dict of evids and idle times
+            self.list_metrics = {}#dict of evids and idle times
             
 
             # 1) spawn incidents for testing 
@@ -1099,7 +1099,7 @@ class Controller:
                 #print("check", self.list_metrics[ev.id],ev.id)
                        
             return self.list_metrics
-    def run_test_episode(self, episode_idx: int) -> dict:
+    def run_test_episode(self, episode_idx: int) :
         self._reset_episode()
 
         total_rep_reward = 0.0
@@ -1109,17 +1109,21 @@ class Controller:
         all_dispatches = []
         all_nav_actions = []
         per_tick_dispatch_counts = []
-        self.list_metrics = {} #evid : list of idle times or avg idle time
+        self.list_avg = []
+        self.average_episodic_idle = 0#evid : list of idle times or avg idle time
         for t in range(self.ticks_per_ep):
             metric_list = self._tick_check(t)
             #print("in test, the metrics observed are fetched")
             for evid in metric_list:
                 #print("ev id ", evid," metric list", metric_list[evid])
                 avg = sum(metric_list[evid])/len(metric_list[evid]) if metric_list[evid] else 0.0
-                self.list_metrics[evid] = (avg)
-                print("calculated avg idle time for ev", evid, "is", avg)
-                         
+                #self.list_metrics[evid] = (avg)
+                #print("calculated avg idle time for ev", evid, "is", avg)
+                self.list_avg.append(avg)         
            #dict ev.id: ev.idletime
+            if self.list_avg:
+                self.average_episodic_idle = sum(self.list_avg)/len(self.list_avg)
+
             tick_dispatches = getattr(self, "_last_dispatches", []) or []
             try:
                 per_tick_dispatch_counts.append(len(tick_dispatches))
@@ -1236,7 +1240,7 @@ class Controller:
             "total_incidents": len(self.env.incidents),
             "average ep loss": avg_ep_loss,
             "average repo loss": avg_repo_loss,  # Added this key
-            "average episodic idle times": self.list_metrics, #evid : avg idle time over episode
+            "average episodic idle times": self.average_episodic_idle, #evid : avg idle time over episode
         }
         #print("episodic idle time",stats["average episodic idle times\n"])
         return stats

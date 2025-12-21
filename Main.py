@@ -73,8 +73,8 @@ ctrl = Controller(
     csv_path="Data/5Years_SF_calls_latlong.csv"
 )
 #print("initialized evs", ctrl.env)
-n_episodes = 300
-n_tests = 1
+n_episodes = 250
+n_tests = 25
 all_stats = []
 all_nav_loss = []
 all_repo_loss = [] # New list for repositioning
@@ -120,8 +120,9 @@ for ep in range(0,n_tests):
     #slot_ienergy = test_stats["slot idle energy"]
     #list_metrics = test_stats["list metrics"]
     slot_itime = test_stats["average episodic idle times"]
-    ids = list(slot_itime.keys())
-    avg_vals = list(slot_itime.values())
+    print("avergae episodic idle time for ep",ep,"is",slot_itime)
+    #ids = list(slot_itime.keys())
+    #avg_vals = list(slot_itime.values())
     #print("idle time episodic", slot_itime)
     #for evid in list_metrics:
         #avg_list_metric = sum(list_metrics[evid])/len(list_metrics[evid])
@@ -155,7 +156,7 @@ plt.show()'''
 
 
 
-'''plt.figure(figsize=(10, 8)) # Make the figure taller
+plt.figure(figsize=(10, 8)) # Make the figure taller
 
 # Plot 1: Navigation Loss
 plt.subplot(2, 1, 1) # 2 rows, 1 column, plot #1
@@ -174,4 +175,4 @@ plt.grid(True)
 plt.legend()
 
 plt.tight_layout() # Prevents overlap
-plt.show()'''
+plt.show()
