@@ -114,3 +114,40 @@ class Grid:
             "neighbours": list(self.neighbours),
             "imbalance": self.imbalance,
         }
+
+import numpy as np
+
+def compute_normalized_arrival_rates(grids, dt_minutes=8):
+  
+    rates = {}
+    for grid_id, grid in grids.items():
+        count = len(grid.incidents)
+        rate = count / dt_minutes
+        rates[grid_id] = rate
+        print(rate)
+    values = np.array(list(rates.values()), dtype=np.float32)
+
+    if values.max() > values.min():
+        norm_values = (values - values.min()) / (values.max() - values.min())
+        
+    else:
+       
+        norm_values = np.zeros_like(values)
+    print("normalized values",norm_values)
+    return dict(zip(rates.keys(), norm_values))
+'''grid_dict = {}
+for i in range(0,8):
+    
+    grid_dict[i] =  Grid(index = i)
+
+grid_dict[0].incidents = [1]
+grid_dict[1].incidents = [1,2,3]
+grid_dict[2].incidents = [1,2,3,4,5,6,7,8,9,10]
+grid_dict[3].incidents = [1,2]
+grid_dict[4].incidents = [1,2,3,4,5,6,7]
+grid_dict[5].incidents = [1,2,3,4,5]
+grid_dict[6].incidents = [1,2,3,4]
+grid_dict[7].incidents = [1,2,3,4,5,6,7,8,9]
+
+compute_normalized_arrival_rates(grid_dict, dt_minutes=8)
+'''

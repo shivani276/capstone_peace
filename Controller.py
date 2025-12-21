@@ -102,6 +102,7 @@ class Controller:
 
             state_dim_nav = nav_action_dim
             self.nav_step = 0
+            self.rep_step = 0
             self.nav_target_update = 500  
             self.nav_tau = 0.005          
             self.dqn_navigation_main = DQNetwork(state_dim_nav, nav_action_dim).to(self.device)
@@ -422,13 +423,14 @@ class Controller:
             self.opt_reposition.step()
 
         self.ep_repo_losses.append(loss.item())
-
+        self.rep_step +=1
         tau = 0.005
         if self.dqn_reposition_target is not None and self.dqn_reposition_main is not None:
             for t_param, o_param in zip(self.dqn_reposition_target.parameters(),
                                         self.dqn_reposition_main.parameters()):
                 t_param.data.mul_(1.0 - tau).add_(tau * o_param.data)
-
+        if self.rep_step % 500 == 0:
+            print(f"[Controller] REPOSITIONING train step={self.rep_step} loss={loss.item():.4f}")
     #===================== NAVIGATION TRAIN ==================#
     
     def _train_navigation(self, batch_size: int = 64, gamma: float = 0.99):
@@ -580,11 +582,7 @@ class Controller:
         
             
 
-        # 3) Accept offers
-        self.env.accept_reposition_offers()
         
-        # --- FIX: REMOVED DEBUG_DISPATCH ARGUMENT ---
-        dispatches = self.env.dispatch_gridwise(beta=0.5)
        
         try:
             self._last_dispatches = dispatches
@@ -601,8 +599,14 @@ class Controller:
                 ev.sarns["state"] = state_vec
                 a_gi = self._select_action(state_vec, ev.gridIndex)
                 ev.sarns["action"] = a_gi
-            
-            elif ev.state == EvState.BUSY :
+        # 3) Accept offers
+        self.env.accept_reposition_offers()
+        
+        # --- FIX: REMOVED DEBUG_DISPATCH ARGUMENT ---
+        dispatches = self.env.dispatch_gridwise(beta=0.5)
+
+        for ev in self.env.evs.values():    
+            if ev.state == EvState.BUSY :
                 ev.sarns["state"] = []
                 state_vec,grid_ids = self.build_state_nav1(ev) #this is the same as idle
                 sn_t = torch.as_tensor(state_vec, dtype=torch.float32, device=self.device).view(-1)
