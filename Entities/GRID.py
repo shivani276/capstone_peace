@@ -42,23 +42,22 @@ class Grid:
             self.evs.remove(ev_id)
 
     # ========== Domain logic for querying grid state ==========
-    
+
     def count_idle_available_evs(self, ev_dict: Dict[int, Any]) -> int:
-        
+
         count = 0
         for ev_id in self.evs:
             ev = ev_dict[ev_id]
-
-            # Safely read the chosen action grid; if missing, assume "stay here"
-            action_grid = ev.sarns.get("action", ev.gridIndex)
-           
+    
             if (
                 ev.state == EvState.IDLE
                 and ev.status == "Idle"
-                and ev.gridIndex == action_grid
+                and ev.gridIndex == self.index
             ):
                 count += 1
+
         return count
+
 
     def count_unassigned_incidents(self, incident_dict: Dict[int, Any]) -> int:
         """Count incidents not yet assigned to any EV."""
