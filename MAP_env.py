@@ -403,7 +403,10 @@ class MAP:
                     #
                     if ev.status == "Dispatching" and ev.assignedPatientId is not None:
                         inc = self.incidents.get(ev.assignedPatientId)
-                        #print("incidnents",self.incidents)
+                        #print("attricbutes of inc ev id",inc.id,"assgined patient id",ev.assignedPatientId)
+                        
+                        #print("enviromnet lsit incs disp",len(self.incidents))
+                        
                         #print("ev assgiend patient id",ev.assignedPatientId)
                         #print("incident in dispatch",inc)
                         if ev.gridIndex != ev.nextGrid:
@@ -412,6 +415,7 @@ class MAP:
                                 inc.waitTime += 8.0
                         else:
                             if inc is not None:
+                                #print("inc not none")
                                 #print("ev got service",ev.id,"nav waittime",ev.navWaitTime,"busy time",ev.aggBusyTime,"state of ev",ev.state,"assigned patient",ev.assignedPatientId)
                                 inc.waitTime += inc.estimate_eta_minutes(inc.location[0], inc.location[1], 40.0)
                                 ev.status = "Navigation"
@@ -446,19 +450,27 @@ class MAP:
                             if ev.navWaitTime <= 0.0:
                                 
                                 if ev.assignedPatientId is not None:
-                                    #print("assgined patient id",ev.assignedPatientId)
-                                    inc = self.incidents.get(ev.assignedPatientId)
+                                    #print("enviromnet lsit incs nav",len(self.incidents))
+                                    
+                                    inc_n = self.incidents.get(int(ev.assignedPatientId))
+                                    #print("should be dict",self.incidents,"\n")
+                                    #print("keys",self.incidents.keys(),"\n","assgined id",ev.assignedPatientId)
+                                    if ev.assignedPatientId not in  self.incidents.keys():
+                                        print("keys",self.incidents.keys())
+                                    #print("incidnents",inc_n)
+                                    #print("assigned patient id",ev.assignedPatientId)
+                                    #print("assgined incidnet id",inc.id)
                                     #print("incident")
                                     
-                                    if inc is not None:
-                                        inc.mark_resolved()
+                                    if inc_n is not None:
+                                        inc_n.mark_resolved()
                                         
                                         ev.release_incident()
                                         
-                                        g = self.grids.get(inc.gridIndex)
+                                        g = self.grids.get(inc_n.gridIndex)
                                         if g is not None:
-                                            g.remove_incident(inc.id)
-                                            del inc
+                                            g.remove_incident(inc_n.id)
+                                            #del inc_n
                             
                             ev.aggBusyTime = 0.0
                                
@@ -536,23 +548,22 @@ class MAP:
 
         # Incident updates
         to_delete = []
-        for inc_id, inc in self.incidents.items():
-            if inc.status == IncidentStatus.UNASSIGNED and inc.waitTime < P_MAX:
+        for inc_id, inc in list(self.incidents.items()):
+            if inc.status != IncidentStatus.UNASSIGNED:
+                continue
+
+            if inc.waitTime < P_MAX:
                 inc.add_wait(dt_minutes)
-            elif inc.waitTime > P_MAX:
+            else:
                 inc.status = IncidentStatus.CANCELLED
-
-                grid_idx = inc.gridIndex
-    
-                if grid_idx in self.grids:
-                    g = self.grids[grid_idx]
-
-                    if inc_id in g.incidents:
-                        g.incidents.remove(inc_id)
+                g = self.grids.get(inc.gridIndex)
+                if g is not None and inc_id in g.incidents:
+                    g.incidents.remove(inc_id)
                 to_delete.append(inc_id)
 
         for inc_id in to_delete:
             del self.incidents[inc_id]
+
 
         # Recompute grid imbalances
         for g in self.grids.values():
