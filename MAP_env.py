@@ -147,7 +147,7 @@ class MAP:
 
     # ========== INCIDENT MANAGEMENT ==========
     
-    def create_incident(self, grid_index: int, location: Tuple[float, float], timestamp: Optional[datetime] = None, priority: Optional[int] = None) -> Incident:
+    def create_incident(self, incident_id: int, grid_index: int, location: Tuple[float, float], timestamp: Optional[datetime] = None, priority: Optional[int] = None) -> Incident:
         """Create a new incident and place it in a grid."""
         self._incidentCounter += 1
 
@@ -158,7 +158,7 @@ class MAP:
         pri = int(priority) if priority is not None else 1
         
         inc = Incident(
-            id=self._incidentCounter,
+            id=incident_id,
             gridIndex=grid_index,
             timestamp=timestamp,
             location=location,
