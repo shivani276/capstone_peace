@@ -309,3 +309,48 @@ def travel_minutes(lat1: float, lon1: float, lat2: float, lon2: float, kmph: flo
     """ETA in minutes at constant average speed."""
     km = haversine_km(lat1, lon1, lat2, lon2)
     return 60.0 * km / max(kmph, 1e-6)
+
+# ARRIVAL RATE AND MU J COMPUTATION FOR REAL TIME AMBULANCE REDEPLOYMENT PAPER
+# helpers.py
+import numpy as np
+
+def compute_arrival_rates_and_mu(grids, dt_minutes=8, eps=0.05):
+    """
+    Computes:
+    - lambda_j : arrival rate per grid
+    - mu_j     : normalized arrival-based threshold in (0,1)
+
+    Parameters
+    ----------
+    grids : dict
+        {grid_id: Grid}
+    dt_minutes : int
+        Time window for arrival rate estimation
+    eps : float
+        Lower/upper bound for mu_j
+
+    Returns
+    -------
+    lambda_dict : dict
+        {grid_id: lambda_j}
+    mu_dict : dict
+        {grid_id: mu_j}
+    """
+
+    lambda_dict = {}
+
+    for grid_id, grid in grids.items():
+        lambda_dict[grid_id] = len(grid.incidents) / dt_minutes
+
+    lambda_vals = np.array(list(lambda_dict.values()), dtype=np.float32)
+
+    if lambda_vals.max() > lambda_vals.min():
+        norm = (lambda_vals - lambda_vals.min()) / (lambda_vals.max() - lambda_vals.min())
+    else:
+        norm = np.zeros_like(lambda_vals)
+
+    mu_vals = eps + (1 - 2 * eps) * norm
+    mu_dict = dict(zip(lambda_dict.keys(), mu_vals))
+
+    return lambda_dict, mu_dict
+

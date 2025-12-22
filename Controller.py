@@ -17,6 +17,8 @@ from utils.Helpers import (
     W_MIN, W_MAX, E_MIN, E_MAX,H_MIN, H_MAX,
     utility_navigation, load_calls
 )
+from utils.Helpers import compute_arrival_rates_and_mu
+
 from services.repositioning import RepositioningService
 from DQN import DQNetwork, ReplayBuffer
 
@@ -130,7 +132,7 @@ class Controller:
         self._spawn_success = 0
         self.pretty = True
         self.debug_dispatch = False
-        self.repositioning_service.build_historical_demand(self.df, self.env)
+#        self.repositioning_service.build_historical_demand(self.df, self.env)
 
         #self.repositioning_service.build_predicted_demand(self.df, self.env)
     
@@ -441,11 +443,7 @@ class Controller:
         for g in self.env.grids.values():
             g.imbalance = g.calculate_imbalance(self.env.evs, self.env.incidents)
         #print("Tick", t, "Grid Demands:")
-        # compute mean demand for this tick
-        demands = [len(g.incidents) for g in self.env.grids.values()]
-        self.mean_demand = sum(demands) / len(demands)
 
-            #print(f"  Grid {g_idx}: demand={demand}")
 
         # 2) build states and actions for IDLE EVs
         for ev in self.env.evs.values():
@@ -454,17 +452,16 @@ class Controller:
                 ev.sarns["state"] = state_vec
                 a_gi = self._select_action(state_vec, ev.gridIndex)
                 ev.sarns["action"] = a_gi
-
+        lambda_dict, mu_dict = compute_arrival_rates_and_mu(self.env.grids)
         # 3) Accept offers
         #self.env.accept_reposition_offers()
         # 3) Apply paper's urgency-based redeployment (stage1+stage2)
         self.repositioning_service.urgency_based_redeployment(
-        evs=self.env.evs,
-        grids=self.env.grids,
-        incidents=self.env.incidents,
-        mean_demand=self.mean_demand
-    )
-
+            evs=self.env.evs,
+            grids=self.env.grids,
+            lambda_dict=lambda_dict,
+            mu_dict=mu_dict
+        )
 
 
         # --- FIX: REMOVED DEBUG_DISPATCH ARGUMENT ---
@@ -521,7 +518,8 @@ class Controller:
                 if moved:
                     print(f"[REDEPLOY] MOVE EV {ev.id}: {ev.gridIndex} → {ev.nextGrid}")
                     self.env.move_ev_to_grid(ev.id, ev.nextGrid)
-                    ev.sarns["just_redeployed"] = True
+                    for ev in self.env.evs.values():
+                        ev.sarns["just_redeployed"] = False
                 ev.status = "Idle"
                 ev.nextGrid = None
 
@@ -568,42 +566,47 @@ class Controller:
         '''
 # Debug block ------------------------------------------------------------------------>
         print("\n=== DEBUG TICK", t, "===")
-        # 1) Mean demand (already printed above)
-        print(f"Tick {t}: Mean Demand Across Grids = {self.mean_demand:.3f}")
-        # 2) Demand of ALL grids
-        print("Grid Demands:")
-        for g_idx, g in self.env.grids.items():
-            print(f"  Grid {g_idx}: demand={len(g.incidents)}")
 
-        # 3) Identify AS grids (demand > mean demand)
-        as_grids = [g_idx for g_idx, g in self.env.grids.items()
-                    if len(g.incidents) > self.mean_demand]
-        print("AS grids this tick:", as_grids)
+        # 1) Arrival rates and urgency (ALL grids)
+        print("Urgency of ALL grids (lower T*_j = more urgent):")
+        for g_idx in sorted(self.env.grids.keys()):
+            ui = self.repositioning_service.last_urgencies.get(g_idx, None)
+            if ui is None:
+                print(f"  Grid {g_idx}: T*_j = N/A")
+            else:
+                print(f"  Grid {g_idx}: T*_j = {ui:.3f}")
 
-        # 4) Urgency of ALL AS grids
-        print("Urgency of AS grids:")
-        for g_idx in as_grids:
-            ui = self.repositioning_service.calculate_grid_urgency(
-            grid_id=g_idx,
-            grids=self.env.grids,
-            #df=self.df
-            mean_demand=self.mean_demand
-        )
+        # 2) Idle EV count per grid (n_j verification)
+        print("\nIdle EV count per grid (n_j):")
+        for g_idx in sorted(self.env.grids.keys()):
+            n_j = sum(
+                1 for ev in self.env.evs.values()
+                if ev.state == EvState.IDLE and ev.gridIndex == g_idx
+            )
+            print(f"  Grid {g_idx}: n_j = {n_j}")
 
-            print(f"  Grid {g_idx}: urgency={ui:.3f}")
-
-        # 5) EV redeployment movements (after moves)
-        print("EV Redeployments this tick:")
+        # 3) Redeployment movements this tick
+        print("\nEV Redeployments this tick:")
+        any_move = False
         for ev in self.env.evs.values():
-            if ev.status == "Idle" and ev.sarns.get("just_redeployed", False):
-                print(f"  EV {ev.id} moved to Grid {ev.gridIndex}")
+            if ev.sarns.get("just_redeployed", False):
+                print(f"  EV {ev.id}: moved to Grid {ev.gridIndex}")
+                any_move = True
+        if not any_move:
+            print("  None")
 
-        # 6) Status of ALL EVs
-        print("EV Status Summary:")
+        # 4) Final EV distribution
+        print("\nFinal EV Status Summary:")
         for ev in self.env.evs.values():
-            print(f"  EV {ev.id}: state={ev.state.name}, status={ev.status}, grid={ev.gridIndex}")
+            print(
+                f"  EV {ev.id}: "
+                f"state={ev.state.name}, "
+                f"status={ev.status}, "
+                f"grid={ev.gridIndex}"
+            )
 
-        print("=== END DEBUG ===\n")    
+        print("=== END DEBUG ===\n")
+   
         #self._train_reposition(batch_size=64, gamma=0.99) - cuz no dqn
         self._train_navigation(batch_size=64, gamma=0.99)
 
@@ -743,6 +746,9 @@ class Controller:
     def _build_offers_for_idle_evs(self) -> int:
         offers = 0
         for ev in self.env.evs.values():
+            ev.sarns.pop("just_redeployed", None)
+            ev.sarns.pop("from_grid", None)
+            ev.sarns.pop("to_grid", None)
             a_gi = ev.sarns["action"]
             if a_gi == ev.nextGrid and ev.status == "Repositioning" :
                 offers += 1

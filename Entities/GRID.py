@@ -2,6 +2,12 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple, Dict, Any
+import sys
+import os
+
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
 
 LatLng = Tuple[float, float]
 from Entities.ev import EV, EvState
@@ -51,7 +57,7 @@ class Grid:
 
             # Safely read the chosen action grid; if missing, assume "stay here"
             action_grid = ev.sarns.get("action", ev.gridIndex)
-
+           
             if (
                 ev.state == EvState.IDLE
                 and ev.status == "Idle"
@@ -76,7 +82,8 @@ class Grid:
         """
         unassigned = self.count_unassigned_incidents(incident_dict)
         idle_here = self.count_idle_available_evs(ev_dict)
-        return max(0, unassigned - idle_here)
+        imb = (unassigned - idle_here)
+        return imb
     
     def get_eligible_idle_evs(self, ev_dict: Dict[int, Any]) -> List[int]:
         """
@@ -113,3 +120,42 @@ class Grid:
             "neighbours": list(self.neighbours),
             "imbalance": self.imbalance,
         }
+
+import numpy as np
+
+def compute_normalized_arrival_rates(grids, dt_minutes=8):
+  
+    rates = {}
+    for grid_id, grid in grids.items():
+        count = len(grid.incidents)
+        rate = count / dt_minutes
+        rates[grid_id] = rate
+        print(rate)
+    values = np.array(list(rates.values()), dtype=np.float32)
+
+    if values.max() > values.min():
+        norm_values = (values - values.min()) / (values.max() - values.min())
+        
+    else:
+       
+        norm_values = np.zeros_like(values)
+    print("normalized values",norm_values)
+    return dict(zip(rates.keys(), norm_values))
+''' grid_dict = {}
+for i in range(0,8):
+    
+    grid_dict[i] =  Grid(index = i)
+
+grid_dict[0].incidents = [1]
+grid_dict[1].incidents = [1,2,3]
+grid_dict[2].incidents = [1,2,3,4,5,6,7,8,9,10]
+grid_dict[3].incidents = [1,2]
+grid_dict[4].incidents = [1,2,3,4,5,6,7]
+grid_dict[5].incidents = [1,2,3,4,5]
+grid_dict[6].incidents = [1,2,3,4]
+grid_dict[7].incidents = [1,2,3,4,5,6,7,8,9]
+
+compute_normalized_arrival_rates(grid_dict, dt_minutes=8)'''
+
+
+
