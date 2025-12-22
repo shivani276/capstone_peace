@@ -109,12 +109,13 @@ def to_tick_index(ts: pd.Timestamp) -> int:
 def build_daily_incident_schedule(
     df: pd.DataFrame,
     day: pd.Timestamp,
+    id_col: str = "index",
     time_col: str = "Received DtTm",
     lat_col: str | None = "Latitude",
     lng_col: str | None = "Longitude",
     wkt_col: str | None = None,
     priority_col: str | None = "Final Priority",
-) -> Dict[int, List[Tuple[pd.Timestamp, float, float, int]]]:
+) -> Dict[int, List[Tuple[int,pd.Timestamp, float, float, int]]]:
     """
     Returns {tick: [(ts, lat, lng, priority), ...], ...} for a single calendar day in df.
     If lat/lng not present, set wkt_col to parse 'POINT (lng lat)'.
@@ -126,10 +127,14 @@ def build_daily_incident_schedule(
     day_end = day_start + pd.Timedelta(days=1)
     tmp = tmp[(tmp[time_col] >= day_start) & (tmp[time_col] < day_end)]
 
-    coords: List[Tuple[pd.Timestamp, float, float, int]] = []
+    coords: List[Tuple[int,pd.Timestamp, float, float, int]] = []
 
     if lat_col and lng_col and lat_col in tmp.columns and lng_col in tmp.columns:
         tmp = tmp.dropna(subset=[lat_col, lng_col])
+
+        if id_col not in tmp.columns:
+            raise RuntimeError(f"Missing id column '{id_col}' in dataset")
+
         
         # Get priority series or create default
         if priority_col and priority_col in tmp.columns:
@@ -137,10 +142,10 @@ def build_daily_incident_schedule(
         else:
             priorities = [1] * len(tmp)
         
-        for ts, lat, lng, priority in zip(tmp[time_col], tmp[lat_col], tmp[lng_col], priorities):
+        for inc_id,ts, lat, lng, priority in zip(tmp[id_col],tmp[time_col], tmp[lat_col], tmp[lng_col], priorities):
             if pd.notna(lat) and pd.notna(lng):
                 pri = int(priority) if pd.notna(priority) else 1
-                coords.append((ts, float(lat), float(lng), pri))
+                coords.append((int(inc_id),ts, float(lat), float(lng), pri))
     elif wkt_col and wkt_col in tmp.columns:
         # Get priority series or create default
         if priority_col and priority_col in tmp.columns:
@@ -148,19 +153,19 @@ def build_daily_incident_schedule(
         else:
             priorities = [1] * len(tmp)
         
-        for ts, w, priority in zip(tmp[time_col], tmp[wkt_col], priorities):
+        for inc_id, ts, w, priority in zip(tmp[id_col],tmp[time_col], tmp[wkt_col], priorities):
             p = parse_wkt_row(w)
             if p:
                 lat, lng = p
                 pri = int(priority) if pd.notna(priority) else 1
-                coords.append((ts, lat, lng, pri))
+                coords.append((int(inc_id),ts, lat, lng, pri))
     else:
         return {}
 
-    schedule: Dict[int, List[Tuple[pd.Timestamp, float, float, int]]] = {i: [] for i in range(180)}
-    for ts, lat, lng, pri in coords:
+    schedule: Dict[int, List[Tuple[int, pd.Timestamp, float, float, int]]] = {i: [] for i in range(180)}
+    for inc_id,ts, lat, lng, pri in coords:
         t = to_tick_index(ts)
-        schedule[t].append((ts, lat, lng, pri))
+        schedule[t].append((inc_id,ts, lat, lng, pri))
     return schedule
 
 # -----------------------------
