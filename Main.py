@@ -73,8 +73,8 @@ ctrl = Controller(
     csv_path="Data/5Years_SF_calls_latlong.csv"
 )
 #print("initialized evs", ctrl.env)
-n_episodes = 250
-n_tests = 25
+n_episodes = 5
+n_tests = 5
 all_stats = []
 all_nav_loss = []
 all_repo_loss = [] # New list for repositioning
@@ -121,6 +121,8 @@ for ep in range(0,n_tests):
     #list_metrics = test_stats["list metrics"]
     slot_itime = test_stats["average episodic idle times"]
     print("avergae episodic idle time for ep",ep,"is",slot_itime)
+    slot_btime = test_stats["average episodic busy times"]
+    print("avergae episodic busy time for ep ",ep, "is",slot_btime)
     #ids = list(slot_itime.keys())
     #avg_vals = list(slot_itime.values())
     #print("idle time episodic", slot_itime)
