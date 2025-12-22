@@ -574,10 +574,10 @@ class Controller:
     def _tick(self, t: int) -> None:
         #print("called tick")
         
-
+        #for t in range(0,t+1):
         # 1) spawn incidents
         self._spawn_incidents_for_tick(t)
-        print("spawned inc",self._spawned_incidents)
+        #print("spawned inc",self._spawned_incidents)
         self.env.tick_hospital_waits()
         
         for g in self.env.grids.values():
@@ -611,7 +611,7 @@ class Controller:
         dispatches = self.env.dispatch_gridwise(beta=0.5)
 
         for ev in self.env.evs.values():    
-            if ev.state == EvState.BUSY :
+            if ev.state == EvState.BUSY and ev.status == "Navigation":
                 ev.sarns["state"] = []
                 state_vec,grid_ids = self.build_state_nav1(ev) #this is the same as idle
                 sn_t = torch.as_tensor(state_vec, dtype=torch.float32, device=self.device).view(-1)
@@ -1023,6 +1023,8 @@ class Controller:
             self.nav_metric = {}
 
             # 1) spawn incidents for testing 
+            #for t in range(0,t+1):
+        # 1) spawn incidents
             self._spawn_incidents_for_tick(t)
            #self.env.tick_hospital_waits()
             
