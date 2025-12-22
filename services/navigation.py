@@ -113,6 +113,7 @@ class NavigationService:
         
         # Add EV to hospital's priority-specific service list
         best_hospital.start_service(ev_id=ev.id, priority=priority)
+        #print("best hospital",best_hospital)
         
         # Set nav wait time to the calculated wait for this hospital
         ev.navWaitTime = calculate_wait_func(ev, best_hospital)

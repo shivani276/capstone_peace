@@ -109,6 +109,7 @@ def to_tick_index(ts: pd.Timestamp) -> int:
 def build_daily_incident_schedule(
     df: pd.DataFrame,
     day: pd.Timestamp,
+    id_col: str = "index",
     time_col: str = "Received DtTm",
     lat_col: str | None = "Latitude",
     lng_col: str | None = "Longitude",
@@ -125,8 +126,11 @@ def build_daily_incident_schedule(
     day_start = pd.Timestamp(day.normalize())
     day_end = day_start + pd.Timedelta(days=1)
     tmp = tmp[(tmp[time_col] >= day_start) & (tmp[time_col] < day_end)]
+    
+    if id_col not in tmp.columns:
+        raise RuntimeError(f"Missing required id column: {id_col}")
 
-    coords: List[Tuple[pd.Timestamp, float, float, int]] = []
+    coords: List[Tuple[int,pd.Timestamp, float, float, int]] = []
 
     if lat_col and lng_col and lat_col in tmp.columns and lng_col in tmp.columns:
         tmp = tmp.dropna(subset=[lat_col, lng_col])
@@ -137,7 +141,7 @@ def build_daily_incident_schedule(
         else:
             priorities = [1] * len(tmp)
         
-        for ts, lat, lng, priority in zip(tmp[time_col], tmp[lat_col], tmp[lng_col], priorities):
+        for inc_id,ts, lat, lng, priority in zip(tmp[time_col], tmp[lat_col], tmp[lng_col], priorities):
             if pd.notna(lat) and pd.notna(lng):
                 pri = int(priority) if pd.notna(priority) else 1
                 coords.append((ts, float(lat), float(lng), pri))
@@ -157,10 +161,10 @@ def build_daily_incident_schedule(
     else:
         return {}
 
-    schedule: Dict[int, List[Tuple[pd.Timestamp, float, float, int]]] = {i: [] for i in range(180)}
+    schedule: Dict[int, List[Tuple[int, pd.Timestamp, float, float, int]]] = {i: [] for i in range(180)}
     for ts, lat, lng, pri in coords:
         t = to_tick_index(ts)
-        schedule[t].append((ts, lat, lng, pri))
+        schedule[t].append((incId, ts, lat, lng, pri))
     return schedule
 
 # -----------------------------

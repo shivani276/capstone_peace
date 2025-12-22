@@ -166,6 +166,7 @@ class MAP:
         )
         self.incidents[inc.id] = inc
         self.grids[grid_index].add_incident(inc.id)
+        #print("incident id",inc.id)
         return inc
 
     # ========== HOSPITAL MANAGEMENT ==========
@@ -245,7 +246,7 @@ class MAP:
     def next_grid_towards(self, from_idx: int, to_idx: int) -> int:
 
         if from_idx == to_idx:
-            return None  # already there
+            return from_idx  # already there
 
         n_rows = len(self.lat_edges) - 1
         n_cols = len(self.lng_edges) - 1
@@ -402,24 +403,37 @@ class MAP:
                     #
                     if ev.status == "Dispatching" and ev.assignedPatientId is not None:
                         inc = self.incidents.get(ev.assignedPatientId)
+                        #print("incidnents",self.incidents)
+                        #print("ev assgiend patient id",ev.assignedPatientId)
+                        #print("incident in dispatch",inc)
                         if ev.gridIndex != ev.nextGrid:
                             self.move_ev_to_grid(ev.id, ev.nextGrid)
                             if inc is not None:
                                 inc.waitTime += 8.0
                         else:
                             if inc is not None:
+                                #print("ev got service",ev.id,"nav waittime",ev.navWaitTime,"busy time",ev.aggBusyTime,"state of ev",ev.state,"assigned patient",ev.assignedPatientId)
                                 inc.waitTime += inc.estimate_eta_minutes(inc.location[0], inc.location[1], 40.0)
                                 ev.status = "Navigation"
+                                #print("ev",ev.id,"status",ev.status)
                                 ev.nextGrid = None
                                 inc.status = IncidentStatus.SERVICING
 
                     if ev.status == "Navigation" and ev.nextGrid is not None:
                         ev.navEtaMinutes -= 8
                         ev.aggBusyTime += 8
-                        if ev.nextGrid != None:
+                        
+
+                        #print("ev",ev.id,"is navigating with remaining time",ev.navEtaMinutes,"total busy time",ev.aggBusyTime,"\n")
+                        if ev.nextGrid != ev.gridIndex:
+                            #print("nav eta",ev.navEtaMinutes)
                             self.move_ev_to_grid(ev.id, ev.nextGrid)                            
-                            
+                        
+                             
+                            #print("ev ",ev.id,"reached grid",ev.gridIndex,"total navigating time",ev.aggBusyTime)
+                              
                         elif max(0.0,ev.navEtaMinutes) == 0.0 and ev.navTargetHospitalId is not None:
+                            #print("ev ",ev.id,"nav time",ev.navEtaMinutes,"targethc",ev.navTargetHospitalId,"patient",ev.assignedPatientId)
                             h = self.hospitals[ev.navTargetHospitalId]  # Get the Hospital object
                             if ev.assignedPatientPriority == 1:
                                 h.evs_serving_priority_1.append(ev.id)
@@ -427,20 +441,27 @@ class MAP:
                                 h.evs_serving_priority_2.append(ev.id)
                             else:
                                 h.evs_serving_priority_3.append(ev.id)
-                            ev.navWaitTime -= 8.0    #is this service time?
+                            ev.navWaitTime -= 8.0
+                            #ev.aggBusyTime = 0.0    #is this service time?
                             if ev.navWaitTime <= 0.0:
+                                
                                 if ev.assignedPatientId is not None:
+                                    #print("assgined patient id",ev.assignedPatientId)
                                     inc = self.incidents.get(ev.assignedPatientId)
+                                    #print("incident")
+                                    
                                     if inc is not None:
                                         inc.mark_resolved()
-                                        #print("ev got service",ev.id,"nav waittime",ev.navWaitTime,"busy time",ev.aggBusyTime,"state of ev",ev.state)
+                                        
                                         ev.release_incident()
-                                        #print("ev got service",ev.id,"nav waittime",ev.navWaitTime,"busy time",ev.aggBusyTime,"state of ev",ev.state)
+                                        
                                         g = self.grids.get(inc.gridIndex)
                                         if g is not None:
                                             g.remove_incident(inc.id)
                                             del inc
-                                ev.navWaitTime = 0.0
+                            
+                            ev.aggBusyTime = 0.0
+                               
                                 
 
 
