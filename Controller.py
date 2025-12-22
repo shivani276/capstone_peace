@@ -530,6 +530,8 @@ class Controller:
                 ev.navdstGrid = random.choice((0,3,4,5))
                 ev.assignedPatientPriority = random.choice((1,2,3))
                 ev.navEtaMinutes = self.rng.uniform(0.0, self.max_wait_time_HC)
+                ev.navTargetHospitalId = random.choice((1,78))
+               
                 ev.aggIdleTime = 0.0
                 ev.aggIdleEnergy = 0.0
             else:
@@ -562,9 +564,11 @@ class Controller:
             inc = self.env.create_incident(grid_index=gi, location=(lat, lng),timestamp=ts_py,priority=pri)
             try:
                 self._spawned_incidents[inc.id] = inc
+                #print("incident id",inc)
                 #print(f"incident stats",inc.to_dict)
             except Exception:
                 pass
+            
             self._spawn_success +=1
 
     def _tick(self, t: int) -> None:
@@ -573,6 +577,7 @@ class Controller:
 
         # 1) spawn incidents
         self._spawn_incidents_for_tick(t)
+        print("spawned inc",self._spawned_incidents)
         self.env.tick_hospital_waits()
         
         for g in self.env.grids.values():
@@ -626,17 +631,21 @@ class Controller:
 
                 best_hospital = None
 
-                if ev.nextGrid == -1:
+                if ev.nextGrid == ev.gridIndex:
+                    #print("ev is in dst grid",ev.id,ev.gridIndex)
                     hospitals_in_grid = [h for h in self.env.hospitals.values() if h.gridIndex == dest_grid]
                     if hospitals_in_grid:
                         best_hospital = self.env.select_hospital(ev, hospitals_in_grid, self.env.calculate_eta_plus_wait)
+                        #print("selected hc",best_hospital,"for ev",ev.id,"in grid",ev.gridIndex)
                     else:
+                        #print("major blunder")
                         best_hospital = self.env.select_hospital(ev, list(self.env.hospitals.values()), self.env.calculate_eta_plus_wait)
-
+                        
                     if best_hospital is not None:
-                        ev.navTargetHospitalId = best_hospital.id
-                        ev.navWaitTime = self.env.calculate_eta_plus_wait(ev, best_hospital)
 
+                        ev.navTargetHospitalId = best_hospital.id
+                        ev.navWaitTime += self.env.calculate_eta_plus_wait(ev, best_hospital)
+                        ev.aggBusyTime += self.env.calculate_eta_plus_wait(ev, best_hospital)
                 
                 #  REWARD CALCULATION
                 '''candidate_hs = [
@@ -1011,7 +1020,7 @@ class Controller:
             self.slot_idle_time = []
             self.slot_idle_energy = []
             self.list_metrics = {}#dict of evids and idle times
-            
+            self.nav_metric = {}
 
             # 1) spawn incidents for testing 
             self._spawn_incidents_for_tick(t)
@@ -1055,6 +1064,7 @@ class Controller:
             # collect per-tick navigation actions
             nav_actions: list = []
             for ev in self.env.evs.values():
+                self.nav_metric[ev.id] = 0
                 if ev.state == EvState.BUSY and ev.status == "Navigation":
                     state_vec,_ = self.build_state_nav1(ev) 
                     ev.sarns["state"] = state_vec
@@ -1062,7 +1072,10 @@ class Controller:
                     ev.sarns["action"] = a_gi
                     ev.sarns["reward"] = 0.0
                     ev.navEtaMinutes = 0.0
-
+                    busy_time = ev.aggBusyTime
+                    ev.nav_metric.append(busy_time)
+                    
+                    self.nav_metric[ev.id] = ev.nav_metric
                     h = self.env.hospitals.get(a_gi)
                     if h is not None:
                         eta = h.estimate_eta_minutes(ev.location[0], ev.location[1],kmph = np.clip(np.random.normal(40.0, 5.0), 20.0, 80.0))
@@ -1082,8 +1095,10 @@ class Controller:
 
                     try:
                         nav_actions.append((ev.id, a_gi, float(ev.sarns.get("reward", 0.0)), float(ev.navEtaMinutes)))
+                        
                     except Exception:
                         pass
+                    
 
             try:
                 self._last_nav_actions = nav_actions
@@ -1096,13 +1111,13 @@ class Controller:
 
             self.slot_idle_time_avg = sum(self.slot_idle_time)/len(self.slot_idle_time) if self.slot_idle_time else 0.0
             self.slot_idle_energy_avg = sum(self.slot_idle_energy)/len(self.slot_idle_energy) if self.slot_idle_energy else 0.0
-            stats = {"slot idle time": self.slot_idle_time_avg, "slot idle energy": self.slot_idle_energy_avg, "list metrics": self.list_metrics}
+            stats = {"slot idle time": self.slot_idle_time_avg, "slot idle energy": self.slot_idle_energy_avg, "list metrics": self.list_metrics,"list nav metrics":self.nav_metric}
          
                 #print("in time slot metric added")
                 #print("key vlaue pair in test",self.list_metrics.keys,self.list_metrics.values)
                 #print("check", self.list_metrics[ev.id],ev.id)
                        
-            return self.list_metrics
+            return stats
     def run_test_episode(self, episode_idx: int) :
         self._reset_episode()
 
@@ -1114,19 +1129,28 @@ class Controller:
         all_nav_actions = []
         per_tick_dispatch_counts = []
         self.list_avg = []
-        self.average_episodic_idle = 0#evid : list of idle times or avg idle time
+        self.list_nav_avg =[]
+        self.average_episodic_idle = 0 #evid : list of idle times or avg idle time
+        self.average_episodic_busy = 0
         for t in range(self.ticks_per_ep):
-            metric_list = self._tick_check(t)
+            check_stats = self._tick_check(t)
+            metric_list = check_stats["list metrics"]
+            nav_metrics = check_stats["list nav metrics"]
             #print("in test, the metrics observed are fetched")
             for evid in metric_list:
                 #print("ev id ", evid," metric list", metric_list[evid])
                 avg = sum(metric_list[evid])/len(metric_list[evid]) if metric_list[evid] else 0.0
                 #self.list_metrics[evid] = (avg)
                 #print("calculated avg idle time for ev", evid, "is", avg)
-                self.list_avg.append(avg)         
+                self.list_avg.append(avg)      
+            for rvid in nav_metrics:
+                avrg = sum(nav_metrics[evid])/len(nav_metrics[evid]) if nav_metrics[evid] else 0.0
+                self.list_nav_avg.append(avrg)
            #dict ev.id: ev.idletime
             if self.list_avg:
                 self.average_episodic_idle = sum(self.list_avg)/len(self.list_avg)
+            if self.list_nav_avg:
+                self.average_episodic_busy = sum(self.list_nav_avg)/len(self.list_nav_avg)
 
             tick_dispatches = getattr(self, "_last_dispatches", []) or []
             try:
@@ -1245,6 +1269,7 @@ class Controller:
             "average ep loss": avg_ep_loss,
             "average repo loss": avg_repo_loss,  # Added this key
             "average episodic idle times": self.average_episodic_idle, #evid : avg idle time over episode
+            "average episodic busy times":self.average_episodic_busy
         }
         #print("episodic idle time",stats["average episodic idle times\n"])
         return stats
