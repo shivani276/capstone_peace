@@ -78,7 +78,7 @@ class NavigationService:
     def select_hospital(
         ev: EV,
         #incident: Incident,
-        hospitals_in_grid: Hospital,
+        hospitals_in_grid: list,
         calculate_wait_func
     ) -> Hospital:
         """

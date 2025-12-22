@@ -15,7 +15,6 @@ from utils.Helpers import (
     P_MAX,
 )
 
-
 class DispatcherService:
     """Service for managing dispatch of EVs to incidents."""
     
@@ -91,6 +90,7 @@ class DispatcherService:
                     best_ev.assign_incident(inc_id)
                     best_ev.sarns["reward"] = dispatch_reward
                     best_ev.state = EvState.BUSY
+                    
                     best_ev.assignedPatientPriority = inc.priority
                     if ev.gridIndex != inc.gridIndex:
                         best_ev.nextGrid = g_idx  # Move to incident grid first
