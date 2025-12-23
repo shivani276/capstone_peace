@@ -79,7 +79,7 @@ class MAP:
         for r in range(n_rows):
             for c in range(n_cols):
                 idx = r * n_cols + c
-                self.grids[idx] = Grid(index=idx)
+                self.grids[idx] = Grid(index=idx,loc=self.grid_center(idx))
 
         # Connect 8-neighbors
         for r in range(n_rows):
@@ -405,35 +405,48 @@ class MAP:
                         inc = self.incidents.get(ev.assignedPatientId)
                         #print("incidnents",self.incidents)
                         #print("ev assgiend patient id",ev.assignedPatientId)
-                        #print("incident in dispatch",inc)
+                        
                         if ev.gridIndex != ev.nextGrid:
                             self.move_ev_to_grid(ev.id, ev.nextGrid)
                             if inc is not None:
-                                inc.waitTime += 8.0
-                        else:
+                                inc.remainingWaitTime += 8.0
+                        elif ev.gridIndex == ev.nextGrid:
                             if inc is not None:
                                 #print("ev got service",ev.id,"nav waittime",ev.navWaitTime,"busy time",ev.aggBusyTime,"state of ev",ev.state,"assigned patient",ev.assignedPatientId)
-                                inc.waitTime += inc.estimate_eta_minutes(inc.location[0], inc.location[1], 40.0)
+                                inc.remainingWaitTime += inc.estimate_eta_minutes(ev.location[0], ev.location[1], 40.0)
                                 ev.status = "Navigation"
+                                #print("incident in dispatch",inc.status)
                                 #print("ev",ev.id,"status",ev.status)
                                 ev.nextGrid = None
                                 inc.status = IncidentStatus.SERVICING
 
-                    if ev.status == "Navigation" and ev.nextGrid is not None:
-                        ev.navEtaMinutes -= 8
+                    elif ev.status == "Navigation" and ev.nextGrid is not None:
+                        
+                        ev.navEtaMinutes -= 8.0
                         ev.aggBusyTime += 8
+
                         
 
                         #print("ev",ev.id,"is navigating with remaining time",ev.navEtaMinutes,"total busy time",ev.aggBusyTime,"\n")
                         if ev.nextGrid != ev.gridIndex:
                             #print("nav eta",ev.navEtaMinutes)
-                            self.move_ev_to_grid(ev.id, ev.nextGrid)                            
+                            self.move_ev_to_grid(ev.id, ev.nextGrid) 
+                             
+                                            
                         
                              
                             #print("ev ",ev.id,"reached grid",ev.gridIndex,"total navigating time",ev.aggBusyTime)
                               
-                        elif max(0.0,ev.navEtaMinutes) == 0.0 and ev.navTargetHospitalId is not None:
+                        elif ev.nextGrid == ev.gridIndex and max(0.0,ev.navEtaMinutes) == 0.0 and ev.navTargetHospitalId is not None:
                             #print("ev ",ev.id,"nav time",ev.navEtaMinutes,"targethc",ev.navTargetHospitalId,"patient",ev.assignedPatientId)
+                            
+
+                            '''if ev.assignedPatientId is not None:
+                                inc = self.incidents.get(ev.assignedPatientId)
+                                print("incident before marking resolved",inc)
+                                if inc is not None:
+                                    print("Incident",inc.id,"EV",ev.id)'''
+                            
                             h = self.hospitals[ev.navTargetHospitalId]  # Get the Hospital object
                             if ev.assignedPatientPriority == 1:
                                 h.evs_serving_priority_1.append(ev.id)
@@ -441,26 +454,33 @@ class MAP:
                                 h.evs_serving_priority_2.append(ev.id)
                             else:
                                 h.evs_serving_priority_3.append(ev.id)
+                            #print("ev id",ev.id,"ev navwaittime before",ev.navWaitTime)
                             ev.navWaitTime -= 8.0
+                            #print("ev id",ev.id,"ev navwaittime after reaching grid",ev.navWaitTime)
                             #ev.aggBusyTime = 0.0    #is this service time?
                             if ev.navWaitTime <= 0.0:
+                                #print("Entering this loop")
+                                ev.release_incident()
+                                #print("ev id",ev.id,"ev.state", ev.state)
+                                ev.aggBusyTime = 0.0
                                 
                                 if ev.assignedPatientId is not None:
+                                    #print("entering this loop")
                                     #print("assgined patient id",ev.assignedPatientId)
                                     inc = self.incidents.get(ev.assignedPatientId)
-                                    #print("incident")
+                                    
                                     
                                     if inc is not None:
+                                        #print("incident",inc.id)
                                         inc.mark_resolved()
-                                        
-                                        ev.release_incident()
+                                        ev.assignedPatientId = None
+                                        print("incident after marking resolved",inc.status)
                                         
                                         g = self.grids.get(inc.gridIndex)
                                         if g is not None:
                                             g.remove_incident(inc.id)
-                                            del inc
                             
-                            ev.aggBusyTime = 0.0
+                                    
                                
                                 
 
@@ -490,8 +510,8 @@ class MAP:
                        
                         ev.release_incident()'''
 
-                if ev.nextGrid !=-1 and ev.nextGrid != None :
-                    self.move_ev_to_grid(ev.id,ev.nextGrid)
+                '''if ev.nextGrid != ev.gridIndex and ev.nextGrid != None :
+                    self.move_ev_to_grid(ev.id,ev.nextGrid)'''
 
             # 1) EV staying idle in its chosen grid
             if ev.state == EvState.IDLE:
@@ -510,16 +530,7 @@ class MAP:
                 #elif ev.status == "Dispatching" and ev.assignedPatientId is not None:
                     #ev.state = EvState.BUSY
                     #print("sucessful test for idle and dispatching, changed state")
-            else:
-                #ev.add_busy(8)
-                #print("busy time before",ev.aggBusyTime,"evid",ev.id)
-                ev.aggBusyTime  += 8
-                #print("busy time after",ev.aggBusyTime,ev.id)
-                # Decrement wait time for BUSY EVs by 8 minutes each tick
-                if ev.nextGrid == ev.navdstGrid and ev.navWaitTime > 0:
-                    #print("eta before",ev.navWaitTime, ev.id)
-                    ev.navWaitTime = max(0.0, ev.navWaitTime - dt_minutes)
-                    #print("eta after",ev.navWaitTime,"ev id",ev.id,"ev status",ev.status,"dst hc",ev.navTargetHospitalId,"ev in grid",ev.gridIndex,"ev dst grid",ev.navdstGrid,"\n")
+            
 
                 
                 #print("busy time after",ev.aggBusyTime,"evid",ev.id)
@@ -537,18 +548,21 @@ class MAP:
         # Incident updates
         to_delete = []
         for inc_id, inc in self.incidents.items():
-            if inc.status == IncidentStatus.UNASSIGNED and inc.waitTime < P_MAX:
-                inc.add_wait(dt_minutes)
-            elif inc.waitTime > P_MAX:
-                inc.status = IncidentStatus.CANCELLED
+            if inc.status == IncidentStatus.UNASSIGNED: 
+                if inc.waitTime < P_MAX:
+                    inc.add_wait(dt_minutes)
+                elif inc.waitTime > P_MAX:
+                    inc.status = IncidentStatus.CANCELLED
 
-                grid_idx = inc.gridIndex
-    
-                if grid_idx in self.grids:
-                    g = self.grids[grid_idx]
+                    grid_idx = inc.gridIndex
+        
+                    if grid_idx in self.grids:
+                        g = self.grids[grid_idx]
 
-                    if inc_id in g.incidents:
-                        g.incidents.remove(inc_id)
+                        if inc_id in g.incidents:
+                            g.incidents.remove(inc_id)
+                    to_delete.append(inc_id)
+            elif inc.status == IncidentStatus.RESOLVED:
                 to_delete.append(inc_id)
 
         for inc_id in to_delete:

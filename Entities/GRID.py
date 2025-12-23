@@ -6,12 +6,12 @@ from typing import List, Optional, Tuple, Dict, Any
 LatLng = Tuple[float, float]
 from Entities.ev import EV, EvState
 
-
+import math
 
 @dataclass
 class Grid:
     index: int
-    loc: Optional[LatLng] = None   
+    loc: LatLng   
     center1d: float | None = None     # (lat_center, lng_center)
 
     incidents: List[int] = field(default_factory=list)  # incident ids
@@ -113,6 +113,32 @@ class Grid:
             "neighbours": list(self.neighbours),
             "imbalance": self.imbalance,
         }
+    def haversine_distance_km(self, lat2: float, lng2: float) -> float:
+        """
+        Calculate great-circle distance in km from this hospital to a point (lat2, lng2).
+        Uses Haversine formula.
+        """
+        R = 6371.0  # Earth radius in km
+        lat1, lng1 = self.loc
+        
+        dlat = math.radians(lat2 - lat1)
+        dlng = math.radians(lng2 - lng1)
+        a = (math.sin(dlat/2)**2 + 
+             math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * 
+             math.sin(dlng/2)**2)
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+        return R * c
+    
+    def estimate_eta_minutes(self, lat2: float, lng2: float, kmph : float) -> float:
+        """
+        Estimate ETA (in minutes) from this hospital to a point (lat2, lng2)
+        at a constant average speed.
+        """
+        kmph = np.clip(np.random.normal(40.0, 5.0), 20.0, 80.0)
+        #print("speed ",kmph)
+        km = self.haversine_distance_km(lat2, lng2)
+        return 60.0 * km / max(kmph, 1e-6)
+
 
 import numpy as np
 
@@ -134,6 +160,8 @@ def compute_normalized_arrival_rates(grids, dt_minutes=8):
         norm_values = np.zeros_like(values)
     print("normalized values",norm_values)
     return dict(zip(rates.keys(), norm_values))
+
+
 '''grid_dict = {}
 for i in range(0,8):
     

@@ -45,7 +45,7 @@ class EV:
         
 
     def release_incident(self) -> None:
-        self.assignedPatientId = None
+        #self.assignedPatientId = None
         self.status = "Idle"
         self.state = EvState.IDLE
         self.nextGrid = None

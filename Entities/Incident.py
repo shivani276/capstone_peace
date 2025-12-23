@@ -37,7 +37,7 @@ class Incident:
     status: IncidentStatus = IncidentStatus.UNASSIGNED
     waitTime: float = 0.0
     serviceTime: float = 0.0
-    remainingWaitTime: Optional[float] = None
+    remainingWaitTime: float = 0.0
     assignedEvId: Optional[int] = None
     
 
