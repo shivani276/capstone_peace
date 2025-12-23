@@ -23,6 +23,7 @@ class EV:
     assignedPatientId: Optional[int] = None
     assignedPatientPriority: int = 0  # 1 to 3  inclusive for pri
     metric = []
+    nav_metric = []
     aggIdleTime: float = 0.0
     aggIdleEnergy: float = 0.0
     aggBusyTime: float = 0.0
@@ -36,6 +37,7 @@ class EV:
 
     def assign_incident(self, patient_id: int) -> None:
         self.assignedPatientId = patient_id
+        #print("asgined patient",self.assignedPatientId,"to ev",self.id)
         #self.state = EvState.BUSY
         self.status = "Dispatching"
         self.aggIdleEnergy = 0.0

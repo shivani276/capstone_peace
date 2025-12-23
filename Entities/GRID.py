@@ -15,7 +15,8 @@ class Grid:
     center1d: float | None = None     # (lat_center, lng_center)
 
     incidents: List[int] = field(default_factory=list)  # incident ids
-    evs: List[int] = field(default_factory=list)        # ev ids
+    #evs: List[int] = field(default_factory=list)        # ev ids
+    evs: List[int] = field(default_factory=list)    
     hospitals: List[int] = field(default_factory=list)  # hospital ids
     neighbours: List[int] = field(default_factory=list)
 
@@ -32,6 +33,7 @@ class Grid:
     def remove_incident(self, inc_id: int) -> None:
         if inc_id in self.incidents:
             self.incidents.remove(inc_id)
+            
 
     def add_ev(self, ev_id: int) -> None:
         if ev_id not in self.evs:
