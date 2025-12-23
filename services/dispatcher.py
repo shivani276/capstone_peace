@@ -56,6 +56,7 @@ class DispatcherService:
                 if not I:
                     # No EVs available in 8-neighbourhood; skip this incident
                     continue
+                    
                 
                 # Calculate patient priority weighting (reward for dispatch)
                 # Priority weighting: 1 (highest) = 3.0, 2 = 2.0, 3 (lowest) = 1.0
