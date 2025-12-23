@@ -436,7 +436,9 @@ class MAP:
                              
                             #print("ev ",ev.id,"reached grid",ev.gridIndex,"total navigating time",ev.aggBusyTime)
                               
-                        elif max(0.0,ev.navEtaMinutes) == 0.0 and ev.navTargetHospitalId is not None:
+                        #elif max(0.0,ev.navEtaMinutes) == 0.0 and ev.navTargetHospitalId is not None:
+                        elif ev.nextGrid == ev.gridIndex:
+                            #print("ev reached dst grid")
                             #print("ev ",ev.id,"nav time",ev.navEtaMinutes,"targethc",ev.navTargetHospitalId,"patient",ev.assignedPatientId)
                             h = self.hospitals[ev.navTargetHospitalId]  # Get the Hospital object
                             if ev.assignedPatientPriority == 1:
@@ -453,10 +455,13 @@ class MAP:
                                     #print("enviromnet lsit incs nav",len(self.incidents))
                                     
                                     inc_n = self.incidents.get(int(ev.assignedPatientId))
+                                    ev.release_incident()
+                                    ev.aggBusyTime = 0.0
+                               
                                     #print("should be dict",self.incidents,"\n")
                                     #print("keys",self.incidents.keys(),"\n","assgined id",ev.assignedPatientId)
-                                    if ev.assignedPatientId not in  self.incidents.keys():
-                                        print("keys",self.incidents.keys())
+                                    #if ev.assignedPatientId not in  self.incidents.keys():
+                                        #print("keys",self.incidents.keys())
                                     #print("incidnents",inc_n)
                                     #print("assigned patient id",ev.assignedPatientId)
                                     #print("assgined incidnet id",inc.id)
@@ -465,19 +470,12 @@ class MAP:
                                     if inc_n is not None:
                                         inc_n.mark_resolved()
                                         
-                                        ev.release_incident()
+                                        
                                         
                                         g = self.grids.get(inc_n.gridIndex)
                                         if g is not None:
                                             g.remove_incident(inc_n.id)
                                             #del inc_n
-                            
-                            ev.aggBusyTime = 0.0
-                               
-                                
-
-
-
                     '''inc = self.incidents.get(ev.assignedPatientId)
                        if inc is not None:
                         dest_grid_idx = ev.navdstGrid
@@ -502,8 +500,7 @@ class MAP:
                        
                         ev.release_incident()'''
 
-                if ev.nextGrid !=-1 and ev.nextGrid != None :
-                    self.move_ev_to_grid(ev.id,ev.nextGrid)
+                
 
             # 1) EV staying idle in its chosen grid
             if ev.state == EvState.IDLE:
@@ -522,16 +519,7 @@ class MAP:
                 #elif ev.status == "Dispatching" and ev.assignedPatientId is not None:
                     #ev.state = EvState.BUSY
                     #print("sucessful test for idle and dispatching, changed state")
-            else:
-                #ev.add_busy(8)
-                #print("busy time before",ev.aggBusyTime,"evid",ev.id)
-                ev.aggBusyTime  += 8
-                #print("busy time after",ev.aggBusyTime,ev.id)
-                # Decrement wait time for BUSY EVs by 8 minutes each tick
-                if ev.nextGrid == ev.navdstGrid and ev.navWaitTime > 0:
-                    #print("eta before",ev.navWaitTime, ev.id)
-                    ev.navWaitTime = max(0.0, ev.navWaitTime - dt_minutes)
-                    #print("eta after",ev.navWaitTime,"ev id",ev.id,"ev status",ev.status,"dst hc",ev.navTargetHospitalId,"ev in grid",ev.gridIndex,"ev dst grid",ev.navdstGrid,"\n")
+            
 
                 
                 #print("busy time after",ev.aggBusyTime,"evid",ev.id)
