@@ -18,10 +18,11 @@ ctrl = Controller(
     csv_path="Data/Fire_Department_and_Emergency_Medical_Services_Dispatched_Calls_for_Service_20251208.csv"
 )
 
-n_episodes = 100
+n_episodes = 1
 all_wait_times = []
 stats_history=[]
-
+#all_incident_data = []
+'''
 #stats_list = []
 #for ep in range(1, 100):
     #stats = ctrl.run_training_episode(ep)
@@ -29,10 +30,20 @@ stats_history=[]
 
 for ep in range(n_episodes):
 
-    df_trace, stats = ctrl.run_inspection_episode(ep)
-    #stats = ctrl.run_training_episode(ep)
+    #df_trace, stats = ctrl.run_inspection_episode(ep)
+    stats = ctrl.run_test_episode(ep)
     stats_history.append(stats)
-'''  
+    daily_data = []
+    for inc in ctrl._spawned_incidents.values():
+        # Get the wait time (filtering out the 0.0s if needed)
+        w = inc.get_wait_minutes()
+        
+        # Get the priority
+        p = inc.priority
+            
+    # Add to master list    
+    all_incident_data.extend(daily_data)
+ 
 # 2. Filter for a specific EV to see its "Life Story"
 ev_id_to_watch = 11  # Change this to any EV ID
 ev_data = df_trace[df_trace["EV_ID"] == ev_id_to_watch]
@@ -57,292 +68,256 @@ else:
     print("EV finally got to work at these ticks:")
     print(busy_moments.head(50))
 '''
-def plot_real_workload(all_episode_stats):
-    
-    # 1. Extract data from your stats history
-    vehicle_map = {}
-    
-    # We loop through every episode to collect the final energy values
-    for ep_stat in all_episode_stats:
-        if "vehicle_energy" not in ep_stat:
-            print(f"[Warning] Episode {ep_stat.get('episode')} missing 'vehicle_energy' data.")
-            continue
-            
-        v_energies = ep_stat["vehicle_energy"]
-        
-        for vid, energy in v_energies.items():
-            label = f"EV_{vid}"
-            if label not in vehicle_map:
-                vehicle_map[label] = []
-            vehicle_map[label].append(energy)
-            
-    # 2. Check if we found data
-    if not vehicle_map:
-        print("ERROR: No vehicle data found. Did you update 'run_training_episode' in Controller.py?")
-        return
-
-    # 3. Calculate Averages
-    # Sort by ID so they appear in order (EV_0, EV_1, etc.)
-    ev_ids = sorted(vehicle_map.keys(), key=lambda x: int(x.split('_')[1]))
-    avg_energies = [np.mean(vehicle_map[ev]) for ev in ev_ids]
-
-    print(f"Plotting for {len(ev_ids)} Vehicles: {ev_ids}")
-    sorted_ids=sorted(vehicle_map.keys())
-    for vid in sorted_ids:
-        avg_val = np.mean(vehicle_map[vid])
-        print(f"EV ID: {vid} | Average Energy: {avg_val:.2f} kWh")
-
-    # 4. Plot
-    plt.figure(figsize=(12, 6))
-    bars = plt.bar(ev_ids, avg_energies, color='#4E79A7', edgecolor='black', alpha=0.9)
-    
-    plt.title(f'Real Average Energy Consumed per Vehicle\n(Averaged over {len(all_episode_stats)} Episodes)', fontsize=14)
-    plt.xlabel('Vehicle ID')
-    plt.ylabel('Avg Energy (kWh)')
-    plt.grid(axis='y', linestyle='--', alpha=0.5)
-    
-    # Label bars
-    for bar in bars:
-        height = bar.get_height()
-        plt.text(bar.get_x() + bar.get_width()/2., height, f'{height:.1f}',
-                 ha='center', va='bottom', fontsize=9)
-
-    plt.tight_layout()
-    plt.show()
-
-plot_real_workload(stats_history)
 
 
-def plot_energy_idle_tradeoff(all_episode_stats):
-    vehicle_data = {}
 
-    for ep_stat in all_episode_stats:
-        if "vehicle_idle_time" not in ep_stat:
-            print(f"[Warning] Episode {ep_stat.get('episode')} missing 'vehicle_idle_time'.")
-            continue
-
-        energies = ep_stat.get("vehicle_energy", {})
-        times = ep_stat.get("vehicle_idle_time", {})
-
-        for vid in energies.keys():
-            # Ensure we use a consistent key (convert to string if needed for map, but keep original for label)
-            if vid not in vehicle_data:
-                vehicle_data[vid] = {'time': [], 'energy': []}
-            
-            vehicle_data[vid]['energy'].append(energies[vid])
-            vehicle_data[vid]['time'].append(times.get(vid, 0.0))
-
-    if not vehicle_data:
-        print("No data found to plot.")
-        return
-
-    # 2. Calculate Averages per Vehicle
-    avg_times = []
-    avg_energies = []
-    labels = []
-
-    # === FIX: ROBUST SORTING ===
-    # This handles both Integer IDs (0, 1) and String IDs ("EV_0", "EV_1") without crashing
-    def sort_key(x):
-        s_x = str(x)
-        if '_' in s_x:
-            try:
-                return int(s_x.split('_')[1])
-            except ValueError:
-                return s_x
-        elif s_x.isdigit():
-            return int(s_x)
-        else:
-            return s_x
-
-    sorted_vids = sorted(vehicle_data.keys(), key=sort_key)
-
-    for vid in sorted_vids:
-        data = vehicle_data[vid]
-        
-        # Calculate mean
-        mean_t = np.mean(data['time'])
-        mean_e = np.mean(data['energy'])
-        
-        avg_times.append(mean_t)
-        avg_energies.append(mean_e)
-        labels.append(f"EV_{vid}")
-
-    # 3. Plot Scatter
-    plt.figure(figsize=(10, 7))
-    
-    plt.scatter(avg_times, avg_energies, s=150, color='#E15759', edgecolor='black', alpha=0.8)
-
-    # Label dots
-    for i, txt in enumerate(labels):
-        plt.annotate(txt, (avg_times[i], avg_energies[i]), 
-                     xytext=(5, 5), textcoords='offset points', fontsize=9)
-
-    plt.title(f'Trade-off: Idle Time vs. Energy Consumption\n(Averaged over {len(all_episode_stats)} Episodes)', fontsize=14)
-    plt.xlabel('Average Idle Time (Minutes)', fontsize=12)
-    plt.ylabel('Average Idle Energy (kWh)', fontsize=12)
-    plt.grid(True, linestyle='--', alpha=0.6)
-    
-    plt.tight_layout()
-    plt.show()
-
-#plot_energy_idle_tradeoff(stats_history)
-
-
-'''
-import matplotlib.pyplot as plt
-import pandas as pd
-from MAP_env import MAP
-from Controller import Controller
 import matplotlib.pyplot as plt
 import numpy as np
 
-# Initialize Environment
-env = MAP("Data/grid_config_2d.json")
-env.init_evs()
-env.init_hospitals("D:\\Downloads\\hospitals_latlong.csv")
-#env.init_hospitals("Data/hospitals_latlong.csv")
+def plot_real_workload(all_episode_stats):
 
-# Initialize Controller
-ctrl = Controller(
-    env,
-    ticks_per_ep=180,
-    #csv_path="D:\\Downloads\\5Years_SF_calls_latlong.csv"
-    csv_path="Data/Fire_Department_and_Emergency_Medical_Services_Dispatched_Calls_for_Service_20251208.csv"
-)
+    vehicle_energy_map = {}
+    vehicle_time_map = {}
 
-# --- 1. Data Collection Loop ---
-n_episodes = 10
-all_wait_times = []
-all_incident_data = []
-print(f"Collecting wait times over {n_episodes} episodes...")
+    for ep_stat in all_episode_stats:
+        # Ensure both required keys exist
+        if "vehicle_energy" not in ep_stat or "vehicle_idle_time" not in ep_stat:
+            print(f"[Warning] Skipping episode {ep_stat.get('episode')} due to missing data.")
+            continue
 
-for ep in range(n_episodes):
-    ctrl.run_inspection_episode(ep)
-    daily_data = [
-        (inc.get_wait_minutes(), inc.priority) 
-        for inc in ctrl._spawned_incidents.values()
-    ]
+        v_energies = ep_stat["vehicle_energy"]
+        v_times = ep_stat["vehicle_idle_time"]
+
+        # Iterate through EVs present in this episode
+        # We use list(v_energies.keys()) to ensure we iterate safely over a copy
+        for vid in list(v_energies.keys()):
+            # Handle potential string vs int IDs uniformly
+            label = f"EV_{vid}"
+            
+            if label not in vehicle_energy_map:
+                vehicle_energy_map[label] = []
+                vehicle_time_map[label] = []
+                
+            vehicle_energy_map[label].append(v_energies.get(vid, 0.0))
+            # Use .get() with default 0.0 just in case time is missing for a vid that has energy
+            vehicle_time_map[label].append(v_times.get(vid, 0.0))
+
+    if not vehicle_energy_map:
+        print("No valid vehicle data found to plot.")
+        return
+
+    # 2. Sort and Average
+    # Robust sorting key for labels like "EV_1", "EV_10", "EV_2"
+    def sort_key(x):
+        try:
+            return int(x.split('_')[1])
+        except:
+            return x
+            
+    ev_ids = sorted(vehicle_energy_map.keys(), key=sort_key)
     
-    # 3. Add this day's data to the master list
+    # Calculate averages across all test episodes
+    avg_energies = [np.mean(vehicle_energy_map[ev]) for ev in ev_ids]
+    avg_times = [np.mean(vehicle_time_map[ev]) for ev in ev_ids]
+
+    # 3. Setup Plotting Coordinates
+    x = np.arange(len(ev_ids))  # The label locations
+    width = 0.35  # The width of the bars
+
+    fig, ax = plt.subplots(figsize=(14, 7))
+    
+    # Plot Energy bars shifted slightly left
+    rects1 = ax.bar(x - width/2, avg_energies, width, label='Avg Energy (kWh)', color='#4E79A7', edgecolor='black')
+    # Plot Time bars shifted slightly right
+    rects2 = ax.bar(x + width/2, avg_times, width, label='Avg Idle Time (Mins)', color='#F28E2B', edgecolor='black')
+
+    # 4. Formatting
+    ax.set_title(f'Per-Vehicle Workload: Energy vs. Idle Time\n(Averaged over {len(all_episode_stats)} Test Episodes)', fontsize=14, fontweight='bold')
+    ax.set_xticks(x)
+    ax.set_xticklabels(ev_ids, rotation=45)
+    ax.set_ylabel('Value', fontsize=12)
+    ax.legend(fontsize=11)
+    ax.grid(axis='y', linestyle='--', alpha=0.5)
+
+    # 5. Helper function to add labels on top of bars
+    def autolabel(rects):
+        """Attach a text label above each bar in *rects*, displaying its height."""
+        for rect in rects:
+            height = rect.get_height()
+            ax.annotate(f'{height:.1f}',
+                        xy=(rect.get_x() + rect.get_width() / 2, height),
+                        xytext=(0, 3),  # 3 points vertical offset
+                        textcoords="offset points",
+                        ha='center', va='bottom', fontsize=9, fontweight='bold')
+
+    autolabel(rects1)
+    autolabel(rects2)
+
+    plt.tight_layout()
+    plt.show()
+
+
+    
+
+
+def plot_wait_time_stats(all_episode_stats):
+    
+    # --- 1. PREPARE DATA ---
+    episodes = []
+    avg_waits = []
+    all_raw_waits = [] # Collect every single wait time from all episodes
+
+    for stat in all_episode_stats:
+        ep = stat.get("episode")
+        avg = stat.get("avg_patient_wait")
+        raw = stat.get("all_wait_times", [])
+        
+        if ep is not None and avg is not None:
+            episodes.append(ep)
+            avg_waits.append(avg)
+            all_raw_waits.extend(raw)
+            
+    if not episodes:
+        print("No wait time data found. Did you update Controller.py?")
+        return
+
+    # --- 3. PLOT WAIT TIME DISTRIBUTION (Histogram) ---
+    if all_raw_waits:
+        plt.figure(figsize=(10, 5))
+        plt.hist(all_raw_waits, bins=20, color="#bbf8ae", edgecolor='black', alpha=0.8)
+        
+        # Add a vertical line for the global average
+        global_avg = np.mean(all_raw_waits)
+        plt.axvline(global_avg, color='red', linestyle='dashed', linewidth=2, label=f'Mean: {global_avg:.1f} min')
+        counts, edges, bars = plt.hist(all_raw_waits, bins=20, color='#98df8a', edgecolor='black', alpha=0.8)
+        plt.title(f'Distribution of Patient Wait Times\n(Across {len(episodes)} Episodes)', fontsize=14)
+        plt.xlabel('Wait Time (Minutes)', fontsize=12)
+        plt.ylabel('Number of Patients', fontsize=12)
+        plt.legend()
+        plt.grid(axis='y', alpha=0.5)
+
+        for bar in bars:
+            height = bar.get_height()
+            if height > 0:  # Only label bars that actually have patients
+                plt.text(
+                    bar.get_x() + bar.get_width() / 2, 
+                    height + 0.5, 
+                    str(int(height)), 
+                    ha='center', va='bottom', fontsize=9
+                )
+        plt.tight_layout()
+        plt.show()
+        #print(all_raw_waits)
+    else:
+        print("No individual wait times found for histogram.")
+
+#plot_wait_time_stats(stats_history)
+#plot_real_workload(stats_history)
+
+
+
+all_incident_data = [] 
+
+# Run 5 episodes to get enough data
+# (Make sure 'ctrl' is already initialized in your code before this!)
+for ep in range(5):
+    
+    ctrl.run_test_episode(ep)  # Run the sim
+    
+    # Extract data from this episode
+    daily_data = []
+    for inc in ctrl._spawned_incidents.values():
+        w = inc.get_wait_minutes()
+        p = inc.priority
+        # We append a tuple: (wait_time, priority)
+        daily_data.append((w, p))
+            
     all_incident_data.extend(daily_data)
 
-    
+# DEBUG CHECK: Did we actually get data?
+#print(f"[Result] Collected {len(all_incident_data)} simulation incidents.")
+
+if len(all_incident_data) == 0:
+    print("\n[CRITICAL ERROR] No incidents were collected!")
+    print("Possibilities:")
+    print("1. Your simulation logic is not spawning incidents.")
+    print("2. 'ctrl._spawned_incidents' is empty.")
+    # We stop here to prevent the crash
+    exit()
+
+
+
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 
-# --- STEP 2: Process Data into Better Buckets ---
-# We add a specific bucket for >30 mins to catch the "Expired" cases (32.0)
-labels = ['0-5 min', '5-10 min', '10-15 min', '15-30 min', 'Expired (>30)']
+# ... (Previous code for loading Real Data) ...
 
-# Counters for each priority (High, Med, Low)
-# Now we have 5 buckets, so we need 5 zeros
-counts_p1 = [0, 0, 0, 0, 0] 
-counts_p2 = [0, 0, 0, 0, 0]
-counts_p3 = [0, 0, 0, 0, 0]
+# 1. LOAD REAL DATA (As before)
+df = pd.read_csv("Data/Fire_Department_and_Emergency_Medical_Services_Dispatched_Calls_for_Service_20251208.csv")
+df['Received DtTm'] = pd.to_datetime(df['Received DtTm'], format="%Y %b %d %I:%M:%S %p", errors='coerce')
+df['Hospital DtTm'] = pd.to_datetime(df['Hospital DtTm'], format="%Y %b %d %I:%M:%S %p", errors='coerce')
+df = df.dropna(subset=['Received DtTm', 'Hospital DtTm'])
+df['calculated_wait'] = (df['Hospital DtTm'] - df['Received DtTm'])
+real_waits_list = (df['calculated_wait'].dt.total_seconds() / 60.0).tolist()
 
-# Assuming 'all_incident_data' is a list of tuples: (wait_time, priority)
-# If you only have 'all_wait_times' (no priority), just use one 'counts' list.
+# 2. PREPARE SIM DATA (Ensure this variable exists!)
+# If 'all_incident_data' was not created in this run, create a dummy one or fail gracefully
+if 'all_incident_data' not in locals() or len(all_incident_data) == 0:
+    print("\n[ERROR] 'all_incident_data' is EMPTY or undefined.")
+    print("Please run the training/inspection loop BEFORE running this plot code.")
+    # For testing only, here is dummy data to stop the crash:
+    sim_waits_list = [0, 0, 0, 0, 0] 
+else:
+    sim_waits_list = [w for w, p in all_incident_data]
 
-for wait, prio in all_incident_data:
-    # 1. Determine Bucket Index
-    if wait < 5:
-        idx = 0
-    elif wait < 10:
-        idx = 1
-    elif wait < 15:
-        idx = 2
-    elif wait < 30:
-        idx = 3 # The "Very Late" bucket
-    else:
-        idx = 4 # The "Timed Out / 32.0" bucket (This is your P_MAX group)
+# 3. SLICE DATA (Safety Check)
+N = 10
+# Ensure we have at least N items in both lists to avoid index errors
+if len(sim_waits_list) < N:
+    print(f"\n[WARNING] Not enough simulation data! Wanted {N}, got {len(sim_waits_list)}.")
+    N = len(sim_waits_list) # Reduce N to match available data
 
-    # 2. Increment Priority Counter
-    if prio == 1:
-        counts_p1[idx] += 1
-    elif prio == 2:
-        counts_p2[idx] += 1
-    else:
-        counts_p3[idx] += 1
+plot_ids = range(1, N + 1)
+plot_real = real_waits_list[:N]
+plot_sim = sim_waits_list[:N]
 
-# --- STEP 3: Plotting ---
-fig, ax = plt.subplots(figsize=(10, 6))
+# 4. PLOTTING
+if N > 0:
+    x = np.arange(len(plot_ids))
+    width = 0.35
 
-# Stack the bars
-ax.bar(labels, counts_p1, label='High Prio', color='#d62728', edgecolor='black') # Red
-ax.bar(labels, counts_p2, bottom=counts_p1, label='Med Prio', color='#ff7f0e', edgecolor='black') # Orange
+    fig, ax = plt.subplots(figsize=(10, 6))
+    rects1 = ax.bar(x - width/2, plot_real, width, label='Real Data', color="#e9ed89", edgecolor='black')
+    rects2 = ax.bar(x + width/2, plot_sim, width, label='RL Agent', color="#a475dd", edgecolor='black')
 
-# Calculate bottom for 3rd layer
-bottom_p3 = np.add(counts_p1, counts_p2)
-ax.bar(labels, counts_p3, bottom=bottom_p3, label='Low Prio', color='#2ca02c', edgecolor='black') # Green
-
-# Styling
-ax.set_title(f'Patient Wait Time Distribution (Showing Timeouts)', fontsize=14)
-ax.set_xlabel('Wait Time Range', fontsize=12)
-ax.set_ylabel('Number of Patients', fontsize=12)
-ax.legend()
-ax.grid(axis='y', alpha=0.3)
-
-# Add counts on top
-total_counts = np.add(bottom_p3, counts_p3)
-for i, total in enumerate(total_counts):
-    ax.text(i, total + 0.5, f'{int(total)}', ha='center', va='bottom', fontweight='bold')
-
-plt.tight_layout()
-plt.show()
-'''
-
-# Without expired incidents
-'''
-    # FIX 1: Unpack only 2 values (ignore the dataframe with _)
-    df_trace, daily_waits = ctrl.run_inspection_episode(ep)
+    ax.set_xlabel('Incident ID')
+    ax.set_ylabel('Wait Time (Minutes)')
+    ax.set_title(f'Comparison: First {N} Incidents')
+    ax.set_xticks(x)
+    ax.set_xticklabels(plot_ids)
+    ax.legend()
     
-    # FIX 2: Add this episode's waits to the master list
-    all_wait_times.extend(daily_waits)
-    print(daily_waits)
+    # Add labels
+    def autolabel(rects):
+        for rect in rects:
+            height = rect.get_height()
+            ax.annotate(f'{height:.1f}',
+                        xy=(rect.get_x() + rect.get_width() / 2, height),
+                        xytext=(0, 3), textcoords="offset points",
+                        ha='center', va='bottom', fontsize=9)
+    autolabel(rects1)
+    autolabel(rects2)
+
+    plt.tight_layout()
+    plt.show()
+else:
+    print("Cannot plot: No data available to compare.")
 
 
 
-# --- 2. Process Data into Buckets ---
-# NOTE: We use 'all_wait_times' here, not 'wait_times'
-labels = ['0-5 min', '5-10 min', '10-15 min', '>15 min']
-counts = [0, 0, 0, 0]
 
-for w in all_wait_times:
-    if w < 5:
-        counts[0] += 1
-    elif w < 10:
-        counts[1] += 1
-    elif w < 15:
-        counts[2] += 1
-    else:
-        counts[3] += 1
 
-# --- 3. Plotting ---
-fig, ax = plt.subplots(figsize=(10, 6))
 
-colors = ['#2ca02c', '#ff7f0e', '#d62728', '#8c564b']
-bars = ax.bar(labels, counts, color=colors, edgecolor='black', alpha=0.8)
-
-# Add counts on top of bars
-for bar in bars:
-    height = bar.get_height()
-    ax.text(bar.get_x() + bar.get_width()/2., height + 1,
-            f'{int(height)}', ha='center', va='bottom', fontweight='bold')
-
-# Styling
-ax.set_title(f'Patient Wait Time Distribution (Over {n_episodes} Days)', fontsize=14)
-ax.set_xlabel('Wait Time Range', fontsize=12)
-ax.set_ylabel('Number of Patients', fontsize=12)
-ax.grid(axis='y', alpha=0.3)
-
-# Add Summary Stats Box (Using all_wait_times)
-if all_wait_times:
-    stats_text = f"Avg Wait: {np.mean(all_wait_times):.1f} min\nMax Wait: {np.max(all_wait_times):.1f} min"
-    ax.text(0.95, 0.95, stats_text, transform=ax.transAxes, ha='right', va='top',
-            bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
-
-plt.show()
-'''
 
 
