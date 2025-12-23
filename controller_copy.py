@@ -9,7 +9,7 @@ import numpy as np
 
 from MAP_env import MAP
 from Entities.ev import EvState
-from Entities.Incident import Incident, Priority, IncidentStatus
+from Entities.Incident import Priority, IncidentStatus
 from utils.Epsilon import EpsilonScheduler, hard_update, soft_update
 from utils.Helpers import (
     build_daily_incident_schedule,
@@ -17,7 +17,6 @@ from utils.Helpers import (
     W_MIN, W_MAX, E_MIN, E_MAX,H_MIN, H_MAX,
     utility_navigation, load_calls
 )
-
 
 from DQN import DQNetwork, ReplayBuffer
 print("controler loaded")
@@ -103,6 +102,7 @@ class Controller:
 
             state_dim_nav = nav_action_dim
             self.nav_step = 0
+            self.rep_step = 0
             self.nav_target_update = 500  
             self.nav_tau = 0.005          
             self.dqn_navigation_main = DQNetwork(state_dim_nav, nav_action_dim).to(self.device)
@@ -237,8 +237,10 @@ class Controller:
             for h in self.env.hospitals.values():
                 if h.gridIndex != g_idx:
                     continue
-                w = self.env.calculate_eta_plus_wait(ev, h)
-                if w is not None:
+                w_valid = self.env.calculate_eta_plus_wait(ev, h)
+                
+                if w_valid is not None:
+                    w = max(0,w_valid)
                     waits.append(float(w))
             if waits:
                 grid_mean_wait[g_idx] = sum(waits) / len(waits)
@@ -252,33 +254,9 @@ class Controller:
             if not hs_in_grid:
                 state_vec.append(0.0)
                 continue'''
-            ev_lat, ev_lng = ev.location  
-
-        for g_idx in hc_grids:
-            # pick any hospital in this grid to approximate ETA to the grid
-            hs_in_grid = [h for h in self.env.hospitals.values()
-                          if h.gridIndex == g_idx]
-            if not hs_in_grid:
-                continue
-
-            # --- HERE IS WHERE h0 IS DEFINED ---
-            h0 = hs_in_grid[0]
-
-            # ETA from EV to this grid (via representative hospital)
-            try:
-                # === FIX IS HERE: ADD kmph=40.0 ===
-                eta = float(h0.estimate_eta_minutes(ev_lat, ev_lng, kmph=40.0))
-            except Exception:
-                eta = 0.0
-
-            mean_wait = grid_mean_wait[g_idx]
-            feature = eta + mean_wait
-
-            state_vec.append(feature)
-            grid_ids.append(g_idx)
-            #mean_wait = grid_mean_wait[g_idx]
-            #state_vec.append(mean_wait)
             
+            mean_wait = grid_mean_wait[g_idx]
+            state_vec.append(mean_wait)
         
         #print("shape of vector",len(grid_ids))
         return state_vec, grid_ids
@@ -445,13 +423,14 @@ class Controller:
             self.opt_reposition.step()
 
         self.ep_repo_losses.append(loss.item())
-
+        self.rep_step +=1
         tau = 0.005
         if self.dqn_reposition_target is not None and self.dqn_reposition_main is not None:
             for t_param, o_param in zip(self.dqn_reposition_target.parameters(),
                                         self.dqn_reposition_main.parameters()):
                 t_param.data.mul_(1.0 - tau).add_(tau * o_param.data)
-
+        if self.rep_step % 500 == 0:
+            print(f"[Controller] REPOSITIONING train step={self.rep_step} loss={loss.item():.4f}")
     #===================== NAVIGATION TRAIN ==================#
     
     def _train_navigation(self, batch_size: int = 64, gamma: float = 0.99):
@@ -493,8 +472,8 @@ class Controller:
                                       self.dqn_navigation_main.parameters()):
                         p_t.data.mul_(1.0 - self.nav_tau).add_(self.nav_tau * p.data)
 
-        #if self.nav_step % 500 == 0:
-            #print(f"[Controller] NAV train step={self.nav_step} loss={loss.item():.4f}")
+        if self.nav_step % 500 == 0:
+            print(f"[Controller] NAV train step={self.nav_step} loss={loss.item():.4f}")
 
     # ---------- episode reset ----------
     def _reset_episode(self) -> None:
@@ -588,113 +567,191 @@ class Controller:
                 pass
             self._spawn_success +=1
 
-    def _tick(self, t: int, training: bool = True) -> None:
-        # 0. Update Targets (only if training)
-        if training:
-            hard_update(self.dqn_reposition_target, self.dqn_reposition_main)
+    def _tick(self, t: int) -> None:
+        #print("called tick")
+        
 
-        # 1. Spawn & Update Environment
+        # 1) spawn incidents
         self._spawn_incidents_for_tick(t)
         self.env.tick_hospital_waits()
         
         for g in self.env.grids.values():
             g.imbalance = g.calculate_imbalance(self.env.evs, self.env.incidents)
 
-        # 2. Build States & Select Actions for IDLE EVs
-        for ev in self.env.evs.values():
-            if ev.state == EvState.IDLE and ev.status == "Idle":
-                state_vec = self._build_state(ev)
-                ev.sarns["state"] = state_vec
-                a_gi = self._select_action(state_vec, ev.gridIndex)
-                ev.sarns["action"] = a_gi
-
-        # 3. Accept Offers & Dispatch
-        self.env.accept_reposition_offers()
-        dispatches = self.env.dispatch_gridwise(beta=0.5)
+        # 2) build states and actions for IDLE EVs
         
+            
+
+        
+       
         try:
             self._last_dispatches = dispatches
         except Exception:
             self._last_dispatches = []
         
-        # 4. Handle Navigation Actions (Busy EVs)
+        # collect per-tick navigation actions
+        nav_actions: list = []
         for ev in self.env.evs.values():
-            if ev.state == EvState.BUSY and ev.status == "Navigation":
-                state_vec, grid_ids = self.build_state_nav1(ev)
-                ev.sarns["state"] = state_vec
-                
-                slo = self._select_nav_action(state_vec)
-                ev.sarns["action"] = slo
-                
-                dest_grid = grid_ids[slo]
-                candidate_hs = [h for h in self.env.hospitals.values() if h.gridIndex == dest_grid]
-                
-                if candidate_hs:
-                    h = min(candidate_hs, key=lambda hh: hh.waitTime or 0.0)
-                    # Pass kmph=40.0 to fix the previous TypeError
-                    try:
-                        eta = float(h.estimate_eta_minutes(ev.location[0], ev.location[1], kmph=40.0))
-                    except TypeError:
-                         # Fallback if your method signature is different
-                        eta = float(h.estimate_eta_minutes(ev.location[0], ev.location[1]))
+            if ev.state == EvState.IDLE :
 
+                state_vec = self._build_state(ev)
+                sr_t = torch.as_tensor(state_vec, dtype=torch.float32, device=self.device).view(-1)
+                ev.sarns["state"] = state_vec
+                a_gi = self._select_action(state_vec, ev.gridIndex)
+                ev.sarns["action"] = a_gi
+        # 3) Accept offers
+        self.env.accept_reposition_offers()
+        
+        # --- FIX: REMOVED DEBUG_DISPATCH ARGUMENT ---
+        dispatches = self.env.dispatch_gridwise(beta=0.5)
+
+        for ev in self.env.evs.values():    
+            if ev.state == EvState.BUSY :
+                ev.sarns["state"] = []
+                state_vec,grid_ids = self.build_state_nav1(ev) #this is the same as idle
+                sn_t = torch.as_tensor(state_vec, dtype=torch.float32, device=self.device).view(-1)
+                #replace this with the below navigation state builder
+                #state_vec = self.build_state_nav(ev)
+                ev.sarns["state"] = state_vec
+                #print("lenght of getting state",len(ev.sarns["state"]))
+                slo = self._select_nav_action(state_vec)
+                #print("navigation actions", a_gi)
+                ev.sarns["action"] = slo
+                an_t  = ev.sarns.get("action")
+                #(ev.navWaitTime)
+                ev.sarns["reward"] = utility_navigation(ev.navWaitTime)
+                rn_t  = ev.sarns.get("reward")
+                dest_grid = grid_ids[slo]
+                ev.nextGrid = self.env.next_grid_towards(ev.gridIndex, dest_grid)
+
+                best_hospital = None
+
+                if ev.nextGrid == -1:
+                    hospitals_in_grid = [h for h in self.env.hospitals.values() if h.gridIndex == dest_grid]
+                    if hospitals_in_grid:
+                        best_hospital = self.env.select_hospital(ev, hospitals_in_grid, self.env.calculate_eta_plus_wait)
+                    else:
+                        best_hospital = self.env.select_hospital(ev, list(self.env.hospitals.values()), self.env.calculate_eta_plus_wait)
+
+                    if best_hospital is not None:
+                        ev.navTargetHospitalId = best_hospital.id
+                        ev.navWaitTime = self.env.calculate_eta_plus_wait(ev, best_hospital)
+
+                
+                #  REWARD CALCULATION
+                '''candidate_hs = [
+                h for h in self.env.hospitals.values()
+                if h.gridIndex == dest_grid
+                ]
+                #h=self.env.hospitals.get(a_gi)
+                # 5. Pick a concrete hospital (best = minimum wait time)
+                h = min(candidate_hs, key=lambda hh: hh.waitTime or 0.0)
+
+                if h is not None:
+                    eta = float( h.estimate_eta_minutes(ev.location[0], ev.location[1], kmph = np.clip(np.random.normal(40.0, 5.0), 20.0, 80.0)))
                     ev.nextGrid = self.env.next_grid_towards(ev.gridIndex, h.gridIndex)
                     ev.navTargetHospitalId = h.id
                     ev.navdstGrid = h.gridIndex
+                    
                     ev.status = "Navigation"
 
                     if h.waitTime is not None:
                         w_busy = eta + h.waitTime
                         ev.navEtaMinutes = w_busy
                         ev.sarns["reward"] = utility_navigation(w_busy)
-
-        # 5. Update Environment (Move EVs)
-        self.env.update_after_tick(8)
-
-        # 6. Store in Buffer (Only if training)
-        if training:
-            for ev in self.env.evs.values():
+                        #print("reward for navigation", ev.sarns["reward"])
                 
-                # --- A) REPOSITIONING AGENT ---
-                if ev.state == EvState.IDLE or ev.status == "Dispatching":
-                    sr_t = ev.sarns.get("state")
-                    ar_t = ev.sarns.get("action")
-                    rr_t = ev.sarns.get("reward")
-                    
-                    if sr_t is not None and ar_t is not None:
-                        st_2_r_list = self._build_state(ev)
-                        
-                        # FORCE TENSOR
-                        s_tensor = torch.as_tensor(sr_t, dtype=torch.float32, device=self.device).view(-1)
-                        s2_tensor = torch.as_tensor(st_2_r_list, dtype=torch.float32, device=self.device).view(-1)
-                        
-                        # SAFETY CHECK: Ensure Reposition Tensor is Size 12 (or whatever your state_dim is)
-                        # If size mismatches next_state, it's likely a stale state from Navigation.
-                        if s_tensor.shape == s2_tensor.shape:
-                            self.buffer_reposition.push(s_tensor, ar_t, rr_t, s2_tensor, 0.0)
+                print(
+                        f"[NAV-DEBUG] ev={ev.id} "
+                        f"slot={slo} dest_grid={dest_grid} "
+                        f"navTargetHospitalId={ev.navTargetHospitalId} "
+                        f"nextGrid={ev.nextGrid} navdstGrid={ev.navdstGrid} "
+                        f"w_busy={w_busy:.2f}"
+                        )'''
+                
 
-                # --- B) NAVIGATION AGENT ---
-                elif ev.state == EvState.BUSY and ev.status == "Navigation":
-                    s_t = ev.sarns.get("state")
-                    a_t = ev.sarns.get("action")
-                    r_t = ev.sarns.get("reward")
-                    
-                    if s_t is not None and a_t is not None:
-                        st_2_n_list, _ = self.build_state_nav1(ev)
-                        
-                        s_tensor = torch.as_tensor(s_t, dtype=torch.float32, device=self.device).view(-1)
-                        s2_tensor = torch.as_tensor(st_2_n_list, dtype=torch.float32, device=self.device).view(-1)
-                        
-                        # === CRITICAL FIX: SIZE CHECK ===
-                        # If the stored state (s_t) is Size 12 but we expect Size 4 (s2_tensor), 
-                        # it means this EV was IDLE earlier this tick and just became BUSY.
-                        # We MUST skip pushing this invalid transition.
-                        if s_tensor.shape[0] == s2_tensor.shape[0]:
-                            self.buffer_navigation.push(s_tensor, a_t, r_t, s2_tensor, 0.0)
 
-            # Trigger Training
-            self._train_reposition(batch_size=64, gamma=0.99)
-            self._train_navigation(batch_size=64, gamma=0.99)
+            # snapshot idle/energy before env update
+        
+        
+        idle_before = {ev.id: ev.aggIdleTime for ev in self.env.evs.values()}
+        energy_before = {ev.id: ev.aggIdleEnergy for ev in self.env.evs.values()}
+        #print("called the update function")
+        self.env.update_after_tick(8)
+        for ev in self.env.evs.values():
+            if ev.state == EvState.IDLE:
+                #s2 = self._build_state(ev)
+                #append this into the push rep trans, remove s2 from there
+                #self._push_reposition_transition(ev)
+                sr_t = ev.sarns.get("state")
+                #sr_t  = ev.sarns.get("state") 
+                ar_t  = ev.sarns.get("action")
+                rr_t  = ev.sarns.get("reward")
+                st_2_r = self._build_state(ev)
+                doner_t = bool(1)
+                sr_t = torch.as_tensor(sr_t, dtype=torch.float32, device=self.device).view(-1)
+                st_2_r = torch.as_tensor(st_2_r, dtype=torch.float32, device=self.device).view(-1) 
+                self.buffer_reposition.push(sr_t, ar_t, rr_t, st_2_r, doner_t)
+                #print("Repositioning transition pushed:",  ev.id, "state",sr_t,"next state",st_2_r,"\n")
+            elif ev.state == EvState.BUSY and ev.status == "Navigation" :
+                #sn_t  = ev.sarns.get("state") #checked size = 4
+                
+                #an_t  = ev.sarns.get("action")
+                #rn_t  = ev.sarns.get("reward")
+                wits, grids_ids = self.build_state_nav1(ev) #checked size = 4
+                if sn_t is None or an_t is None or rn_t is None:
+                    continue
+                st_2_n = wits #size =4
+                done_t = bool(1)
+                #sn_t = torch.as_tensor(sn_t, dtype=torch.float32, device=self.device).view(-1)
+                st_2_n = torch.as_tensor(st_2_n, dtype=torch.float32, device=self.device).view(-1)
+                self.buffer_navigation.push(sn_t, an_t, rn_t, st_2_n, done_t)
+                #print("Navigation transition pushed:",  ev.id, "state",sn_t,"next state",st_2_n,"\n")
+                if len(self.buffer_reposition) >= 1000:
+                    Sr, Ar, Rr, S2r, Dr = self.buffer_reposition.sample(64, self.device)
+                
+            
+                #print(" tensor pushed for nav",st_2_n,)
+                if len(self.buffer_navigation) >= 1000:
+                    Sn, An, Rn, S2n, Dn = self.buffer_navigation.sample(64, self.device)
+      
+                
+                
+        # measure how much idle time / energy was added this tick
+        for ev in self.env.evs.values():
+            
+            prev_idle = idle_before.get(ev.id, ev.aggIdleTime)
+            prev_energy = energy_before.get(ev.id, ev.aggIdleEnergy)
+
+            di = ev.aggIdleTime - prev_idle
+            de = ev.aggIdleEnergy - prev_energy
+
+            if di > 0:
+                self._ep_idle_added += di
+            if de > 0:
+                self._ep_energy_added += de
+
+        #next state???????????????  
+        
+        
+                
+                
+                
+                
+        emv2 = self.env.evs[2]
+        emv1 = self.env.evs[1]
+        #print("for ev number metric list ",emv.id,"is",emv.metric)
+        #print("for ev number metric list ",emv2.id,"is",emv2.metric)
+        #print("for ev nummber",emv.id,"idle time is",emv.aggIdleTime)  
+        #print("for ev nummber",emv2.id,"idle time is",emv2.aggIdleTime)
+        self._train_reposition(batch_size=64, gamma=0.99)
+        self._train_navigation(batch_size=64, gamma=0.99)
+        
+        '''print("EV state distribution:",
+        sum(ev.state == EvState.IDLE for ev in self.env.evs.values()), "idle,",
+        sum(ev.status == "Dispatching" for ev in self.env.evs.values()), "dispatching,",
+        sum(ev.state == EvState.BUSY for ev in self.env.evs.values()), "busy")'''
+
 
 
     def run_training_episode(self, episode_idx: int) -> dict:
@@ -949,11 +1006,11 @@ class Controller:
             if a_gi == ev.nextGrid and ev.status == "Repositioning" :
                 offers += 1
         return offers
-    def _tick_check(self, t: int) -> dict:
+    def _tick_check(self, t: int) :
             
             self.slot_idle_time = []
             self.slot_idle_energy = []
-            self.list_metrics = {} #dict of evids and idle times
+            self.list_metrics = {}#dict of evids and idle times
             
 
             # 1) spawn incidents for testing 
@@ -1046,7 +1103,7 @@ class Controller:
                 #print("check", self.list_metrics[ev.id],ev.id)
                        
             return self.list_metrics
-    def run_test_episode(self, episode_idx: int) -> dict:
+    def run_test_episode(self, episode_idx: int) :
         self._reset_episode()
 
         total_rep_reward = 0.0
@@ -1056,17 +1113,24 @@ class Controller:
         all_dispatches = []
         all_nav_actions = []
         per_tick_dispatch_counts = []
-        self.list_metrics = {} #evid : list of idle times or avg idle time
+        self.list_avg = []
+        self.average_episodic_idle = 0#evid : list of idle times or avg idle time
+        self.average_episodic_idle_energy = 0
         for t in range(self.ticks_per_ep):
             metric_list = self._tick_check(t)
             #print("in test, the metrics observed are fetched")
             for evid in metric_list:
                 #print("ev id ", evid," metric list", metric_list[evid])
                 avg = sum(metric_list[evid])/len(metric_list[evid]) if metric_list[evid] else 0.0
-                self.list_metrics[evid] = (avg)
+                #self.list_metrics[evid] = (avg)
                 #print("calculated avg idle time for ev", evid, "is", avg)
-                         
+                self.list_avg.append(avg)         
            #dict ev.id: ev.idletime
+            if self.list_avg:
+                self.average_episodic_idle = sum(self.list_avg)/len(self.list_avg)
+                self.average_episodic_idle_energy = sum(self.list_avg)/len(self.list_avg)
+
+
             tick_dispatches = getattr(self, "_last_dispatches", []) or []
             try:
                 per_tick_dispatch_counts.append(len(tick_dispatches))
@@ -1182,113 +1246,14 @@ class Controller:
             "idle_evs": idle_count,
             "total_incidents": len(self.env.incidents),
             "average ep loss": avg_ep_loss,
-            "average repo loss": avg_repo_loss,  
-            "average episodic idle times": self.list_metrics, 
-            "vehicle_energy": {ev.id: ev.aggIdleEnergy for ev in self.env.evs.values()}
+            "average repo loss": avg_repo_loss,  # Added this key
+            "average episodic idle times": self.average_episodic_idle, #evid : avg idle time over episode
+            "avg_patient_wait": avg_wait,
+            "all_wait_times": waits,
+            "vehicle_energy": {ev.id: ev.aggIdleEnergy for ev in self.env.evs.values()},
+            "vehicle_idle_time": {ev.id: ev.aggIdleTime for ev in self.env.evs.values()}
         }
         #print("episodic idle time",stats["average episodic idle times\n"])
         return stats
-    
-    '''
-    def run_inspection_episode(self, episode_idx: int = 0):
-       
-        self._reset_episode()
-        
-        # 1. Trackers for "Running Totals" (Monotonic, never reset)
-        #    map: ev_id -> total_idle_minutes_so_far
-        running_idle_totals = {ev.id: 0.0 for ev in self.env.evs.values()}
-        running_energy_totals = {ev.id: 0.0 for ev in self.env.evs.values()}
-        
-        history_data = []
-
-        print(f"[Inspection] Starting Episode {episode_idx} trace...")
-
-        for t in range(self.ticks_per_ep):
-            # A. Snapshot BEFORE tick (to calculate deltas)
-            pre_tick_idle = {ev.id: ev.aggIdleTime for ev in self.env.evs.values()}
-            pre_tick_energy = {ev.id: ev.aggIdleEnergy for ev in self.env.evs.values()}
             
-            # B. Run the Tick
-            self._tick(t,training=False)
-
-            # C. Calculate Deltas and Update Running Totals
-            for ev in self.env.evs.values():
-                # Calculate how much was added this specific tick
-                # We use the same logic as _tick: if it dropped (reset), we ignore the drop
-                current_val = ev.aggIdleTime
-                prev_val = pre_tick_idle.get(ev.id, 0.0)
-                
-                delta = current_val - prev_val
-                if delta > 0:
-                    running_idle_totals[ev.id] += delta
-                
-                # Same for energy
-                curr_e = ev.aggIdleEnergy
-                prev_e = pre_tick_energy.get(ev.id, 0.0)
-                delta_e = curr_e - prev_e
-                if delta_e > 0:
-                    running_energy_totals[ev.id] += delta_e
-
-                # D. Record Data Point
-                history_data.append({
-                    "Tick": t,
-                    "EV_ID": ev.id,
-                    "State": ev.state.name,         # IDLE / BUSY
-                    "Status": ev.status,            # "Navigation", "Dispatching", etc.
-                    "Grid": ev.gridIndex,
-                    "Current_Idle_Buffer": round(ev.aggIdleTime, 2),    # Resets to 0
-                    "Episode_Total_Idle": round(running_idle_totals[ev.id], 2), # Never resets
-                    "Episode_Total_Energy": round(running_energy_totals[ev.id], 2)
-                })
-
-        print("[Inspection] Trace complete.")
-        df = pd.DataFrame(history_data)
-
-        waits = [inc.get_wait_minutes() for inc in self._spawned_incidents.values()]
-        return df, waits
-    '''
-
-    def run_inspection_episode(self, episode_idx: int):
-        print(f"[Inspection] Starting Episode {episode_idx} trace...")
-        self._reset_episode()
-        
-        # Track trace data
-        trace_data = []
-
-        # Run the episode without training
-        for t in range(self.ticks_per_ep):
-            # 1. Run tick with training=False (Fixes the "unexpected keyword" error)
-            self._tick(t, training=False)
             
-            # 2. Log trace for every vehicle
-            for ev in self.env.evs.values():
-                trace_data.append({
-                    "t": t,
-                    "ev_id": ev.id,
-                    "lat": ev.location[0],
-                    "lng": ev.location[1],
-                    "state": ev.state.name,
-                    "status": ev.status,
-                    "energy": ev.aggIdleEnergy, # Track energy over time
-                    "grid": ev.gridIndex
-                })
-
-        print("[Inspection] Trace complete.")
-        
-        # 3. Compile Statistics
-        # We calculate simple stats here for the inspection
-        total_energy_map = {ev.id: ev.aggIdleEnergy for ev in self.env.evs.values()}
-        
-        stats = {
-            "episode": episode_idx,
-            "vehicle_energy": total_energy_map, # <--- THIS IS THE CRITICAL MISSING KEY
-            "total_incidents": len(self.env.incidents),
-            "vehicle_idle_time": {ev.id: ev.aggIdleTime for ev in self.env.evs.values()}
-        }
-
-        # Create DataFrame from trace
-        df_trace = pd.DataFrame(trace_data)
-        
-        return df_trace, stats
-            
-  
