@@ -338,7 +338,7 @@ class MAP:
             self.grids,
             self.evs,
             self.incidents,
-            beta=beta,
+            #beta=beta,
         )
 
     '''def choose_hospital_for_ev(self, ev_id: int, inc_id: int) -> None:

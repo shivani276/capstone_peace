@@ -297,18 +297,27 @@ def add_lat_lng_from_point(df, point_col: str = "point",
 
 import math
 
-def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+# utils/Helpers.py
+import math
+
+def haversine_km(lat1, lon1, lat2, lon2):
     R = 6371.0
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
-    a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
+
+    a = (
+        math.sin(dlat / 2) ** 2
+        + math.cos(math.radians(lat1))
+        * math.cos(math.radians(lat2))
+        * math.sin(dlon / 2) ** 2
+    )
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return R * c
 
-def travel_minutes(lat1: float, lon1: float, lat2: float, lon2: float, kmph: float = 40.0) -> float:
-    """ETA in minutes at constant average speed."""
+def travel_time_minutes(lat1, lon1, lat2, lon2, kmph=40.0):
     km = haversine_km(lat1, lon1, lat2, lon2)
     return 60.0 * km / max(kmph, 1e-6)
+
 
 # ARRIVAL RATE AND MU J COMPUTATION FOR REAL TIME AMBULANCE REDEPLOYMENT PAPER
 # helpers.py

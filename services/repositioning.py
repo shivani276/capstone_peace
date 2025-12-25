@@ -163,7 +163,7 @@ class RepositioningService: #centralisaed repostioining 'controller' - paper say
 from typing import Dict
 import math
 from scipy.stats import gamma
-
+from utils.Helpers import travel_time_minutes
 from Entities.ev import EV, EvState
 from utils.Helpers import utility_repositioning
 from MAP_env import Grid
@@ -185,26 +185,10 @@ class RepositioningService:
 
     # ------------------ ETA utilities ------------------ #
 
-    @staticmethod
-    def haversine_km(lat1, lon1, lat2, lon2):
-        R = 6371.0
-        dlat = math.radians(lat2 - lat1)
-        dlon = math.radians(lon2 - lon1)
-        a = (
-            math.sin(dlat / 2) ** 2
-            + math.cos(math.radians(lat1))
-            * math.cos(math.radians(lat2))
-            * math.sin(dlon / 2) ** 2
-        )
-        return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-
-    def travel_time_minutes(self, lat1, lon1, lat2, lon2, kmph=40.0):
-        km = self.haversine_km(lat1, lon1, lat2, lon2)
-        return 60.0 * km / max(kmph, 1e-6)
 
     def ev_to_grid_eta(self, ev: EV, grid_id: int, grids):
         g = grids[grid_id]
-        return self.travel_time_minutes(
+        return travel_time_minutes(
             ev.location[0], ev.location[1],
             g.center1d[0], g.center1d[1]
         )
