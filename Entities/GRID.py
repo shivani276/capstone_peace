@@ -15,7 +15,8 @@ class Grid:
     center1d: float | None = None     # (lat_center, lng_center)
 
     incidents: List[int] = field(default_factory=list)  # incident ids
-    evs: List[int] = field(default_factory=list)        # ev ids
+    #evs: List[int] = field(default_factory=list)        # ev ids
+    evs: List[int] = field(default_factory=list)    
     hospitals: List[int] = field(default_factory=list)  # hospital ids
     neighbours: List[int] = field(default_factory=list)
 
@@ -32,6 +33,7 @@ class Grid:
     def remove_incident(self, inc_id: int) -> None:
         if inc_id in self.incidents:
             self.incidents.remove(inc_id)
+            
 
     def add_ev(self, ev_id: int) -> None:
         if ev_id not in self.evs:
@@ -42,23 +44,22 @@ class Grid:
             self.evs.remove(ev_id)
 
     # ========== Domain logic for querying grid state ==========
-    
+
     def count_idle_available_evs(self, ev_dict: Dict[int, Any]) -> int:
-        
+
         count = 0
         for ev_id in self.evs:
             ev = ev_dict[ev_id]
-
-            # Safely read the chosen action grid; if missing, assume "stay here"
-            action_grid = ev.sarns.get("action", ev.gridIndex)
-
+    
             if (
                 ev.state == EvState.IDLE
                 and ev.status == "Idle"
-                and ev.gridIndex == action_grid
+                and ev.gridIndex == self.index
             ):
                 count += 1
+
         return count
+
 
     def count_unassigned_incidents(self, incident_dict: Dict[int, Any]) -> int:
         """Count incidents not yet assigned to any EV."""
@@ -76,7 +77,8 @@ class Grid:
         """
         unassigned = self.count_unassigned_incidents(incident_dict)
         idle_here = self.count_idle_available_evs(ev_dict)
-        return max(0, unassigned - idle_here)
+        imb = (unassigned - idle_here)
+        return imb
     
     def get_eligible_idle_evs(self, ev_dict: Dict[int, Any]) -> List[int]:
         """
@@ -113,3 +115,40 @@ class Grid:
             "neighbours": list(self.neighbours),
             "imbalance": self.imbalance,
         }
+
+import numpy as np
+
+def compute_normalized_arrival_rates(grids, dt_minutes=8):
+  
+    rates = {}
+    for grid_id, grid in grids.items():
+        count = len(grid.incidents)
+        rate = count / dt_minutes
+        rates[grid_id] = rate
+        print(rate)
+    values = np.array(list(rates.values()), dtype=np.float32)
+
+    if values.max() > values.min():
+        norm_values = (values - values.min()) / (values.max() - values.min())
+        
+    else:
+       
+        norm_values = np.zeros_like(values)
+    print("normalized values",norm_values)
+    return dict(zip(rates.keys(), norm_values))
+'''grid_dict = {}
+for i in range(0,8):
+    
+    grid_dict[i] =  Grid(index = i)
+
+grid_dict[0].incidents = [1]
+grid_dict[1].incidents = [1,2,3]
+grid_dict[2].incidents = [1,2,3,4,5,6,7,8,9,10]
+grid_dict[3].incidents = [1,2]
+grid_dict[4].incidents = [1,2,3,4,5,6,7]
+grid_dict[5].incidents = [1,2,3,4,5]
+grid_dict[6].incidents = [1,2,3,4]
+grid_dict[7].incidents = [1,2,3,4,5,6,7,8,9]
+
+compute_normalized_arrival_rates(grid_dict, dt_minutes=8)
+'''

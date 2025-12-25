@@ -102,6 +102,7 @@ class Controller:
 
             state_dim_nav = nav_action_dim
             self.nav_step = 0
+            self.rep_step = 0
             self.nav_target_update = 500  
             self.nav_tau = 0.005          
             self.dqn_navigation_main = DQNetwork(state_dim_nav, nav_action_dim).to(self.device)
@@ -236,8 +237,10 @@ class Controller:
             for h in self.env.hospitals.values():
                 if h.gridIndex != g_idx:
                     continue
-                w = self.env.calculate_eta_plus_wait(ev, h)
-                if w is not None:
+                w_valid = self.env.calculate_eta_plus_wait(ev, h)
+                
+                if w_valid is not None:
+                    w = max(0,w_valid)
                     waits.append(float(w))
             if waits:
                 grid_mean_wait[g_idx] = sum(waits) / len(waits)
@@ -420,13 +423,14 @@ class Controller:
             self.opt_reposition.step()
 
         self.ep_repo_losses.append(loss.item())
-
+        self.rep_step +=1
         tau = 0.005
         if self.dqn_reposition_target is not None and self.dqn_reposition_main is not None:
             for t_param, o_param in zip(self.dqn_reposition_target.parameters(),
                                         self.dqn_reposition_main.parameters()):
                 t_param.data.mul_(1.0 - tau).add_(tau * o_param.data)
-
+        if self.rep_step % 500 == 0:
+            print(f"[Controller] REPOSITIONING train step={self.rep_step} loss={loss.item():.4f}")
     #===================== NAVIGATION TRAIN ==================#
     
     def _train_navigation(self, batch_size: int = 64, gamma: float = 0.99):
@@ -526,6 +530,8 @@ class Controller:
                 ev.navdstGrid = random.choice((0,3,4,5))
                 ev.assignedPatientPriority = random.choice((1,2,3))
                 ev.navEtaMinutes = self.rng.uniform(0.0, self.max_wait_time_HC)
+                ev.navTargetHospitalId = random.choice((1,78))
+               
                 ev.aggIdleTime = 0.0
                 ev.aggIdleEnergy = 0.0
             else:
@@ -549,47 +555,40 @@ class Controller:
     # ---------- per-tick ----------
     def _spawn_incidents_for_tick(self, t: int):
         todays_at_tick = self._schedule.get(t, []) if self._schedule else []
-        for (ts,lat, lng, pri) in todays_at_tick:
+        for (inc_id,ts,lat, lng, pri) in todays_at_tick:
             self._spawn_attempts +=1
             gi = point_to_grid_index(lat, lng, self.env.lat_edges, self.env.lng_edges)
             if gi is None or gi < 0:
                 continue
             ts_py = ts.to_pydatetime() if hasattr(ts, "to_pydatetime") else ts
-            inc = self.env.create_incident(grid_index=gi, location=(lat, lng),timestamp=ts_py,priority=pri)
+            inc = self.env.create_incident(incident_id = inc_id,grid_index=gi, location=(lat, lng),timestamp=ts_py,priority=pri)
             try:
                 self._spawned_incidents[inc.id] = inc
+                #print("incident id",inc)
                 #print(f"incident stats",inc.to_dict)
             except Exception:
                 pass
+            
             self._spawn_success +=1
 
     def _tick(self, t: int) -> None:
         #print("called tick")
         
-
+        #for t in range(0,t+1):
         # 1) spawn incidents
         self._spawn_incidents_for_tick(t)
+        #print("spawned inc",self._spawned_incidents)
         self.env.tick_hospital_waits()
         
         for g in self.env.grids.values():
             g.imbalance = g.calculate_imbalance(self.env.evs, self.env.incidents)
 
         # 2) build states and actions for IDLE EVs
-        for ev in self.env.evs.values():
-            if ev.state == EvState.IDLE and ev.status == "Idle":
-
-                state_vec = self._build_state(ev)
-                sr_t = torch.as_tensor(state_vec, dtype=torch.float32, device=self.device).view(-1)
-                ev.sarns["state"] = state_vec
-                a_gi = self._select_action(state_vec, ev.gridIndex)
-                ev.sarns["action"] = a_gi
-
-        # 3) Accept offers
-        self.env.accept_reposition_offers()
         
-        # --- FIX: REMOVED DEBUG_DISPATCH ARGUMENT ---
-        dispatches = self.env.dispatch_gridwise(beta=0.5)
+            
+
         
+       
         try:
             self._last_dispatches = dispatches
         except Exception:
@@ -597,10 +596,32 @@ class Controller:
         
         # collect per-tick navigation actions
         nav_actions: list = []
+        idle_transitions = []
         for ev in self.env.evs.values():
-            
+
+            if ev.state == EvState.IDLE :
+                ev.sarns["state"] = []
+                ev.sarns["action"] = None #i am paranoid, so i cleared stuff here
+                ev.sarns["reward"] = 0
+                state_vec = self._build_state(ev) #and rebuilt stuff here
+                sr_t = torch.as_tensor(state_vec, dtype=torch.float32, device=self.device).view(-1)
+                ev.sarns["state"] = state_vec
+                a_gi = self._select_action(state_vec, ev.gridIndex)
+                ev.sarns["action"] = a_gi
+                ev.nextGrid = ev.gridIndex #to handle none type errror
+                idle_transitions.append((ev,state_vec,a_gi))
+                
+        # 3) Accept offers
+        self.env.accept_reposition_offers()  #next grid changes
+        
+        # --- FIX: REMOVED DEBUG_DISPATCH ARGUMENT ---
+        dispatches = self.env.dispatch_gridwise(beta=0.5)
+        busy_transitions = []
+        for ev in self.env.evs.values():    
             if ev.state == EvState.BUSY and ev.status == "Navigation":
                 ev.sarns["state"] = []
+                ev.sarns["action"] = None
+                ev.sarns["reward"] = 0
                 state_vec,grid_ids = self.build_state_nav1(ev) #this is the same as idle
                 sn_t = torch.as_tensor(state_vec, dtype=torch.float32, device=self.device).view(-1)
                 #replace this with the below navigation state builder
@@ -614,22 +635,37 @@ class Controller:
                 #(ev.navWaitTime)
                 ev.sarns["reward"] = utility_navigation(ev.navWaitTime)
                 rn_t  = ev.sarns.get("reward")
+                busy_transitions.append((ev,state_vec,slo))
                 dest_grid = grid_ids[slo]
-                ev.nextGrid = self.env.next_grid_towards(ev.gridIndex, dest_grid)
+                ev.navdstGrid = dest_grid
+                if ev.gridIndex == ev.navdstGrid:
+                    ev.status = "reached" #or already there, in this case
+                    ev.nextGrid = ev.gridIndex
+                else:
+                    ev.nextGrid = self.env.next_grid_towards(ev.gridIndex, ev.navdstGrid)
+                #print("ev",ev.id,"in grid",ev.gridIndex,"dst grid",ev.navdstGrid,"moving to grid",ev.nextGrid,"status of ev",ev.status)
 
                 best_hospital = None
-
-                if ev.nextGrid == -1:
-                    hospitals_in_grid = [h for h in self.env.hospitals.values() if h.gridIndex == dest_grid]
+            elif ev.state == EvState.BUSY and ev.status == "reached":
+                if ev.nextGrid == ev.gridIndex:
+                    #ev.status = "reached"
+                    #print("ev is in dst grid",ev.id,ev.gridIndex)
+                    hospitals_in_grid = [h for h in self.env.hospitals.values() if h.gridIndex == ev.navdstGrid]
                     if hospitals_in_grid:
                         best_hospital = self.env.select_hospital(ev, hospitals_in_grid, self.env.calculate_eta_plus_wait)
+                        #print("selected hc",best_hospital,"for ev",ev.id,"in grid",ev.gridIndex)
                     else:
+                        #print("major blunder")
                         best_hospital = self.env.select_hospital(ev, list(self.env.hospitals.values()), self.env.calculate_eta_plus_wait)
-
+                        
                     if best_hospital is not None:
-                        ev.navTargetHospitalId = best_hospital.id
-                        ev.navWaitTime = self.env.calculate_eta_plus_wait(ev, best_hospital)
 
+                        ev.navTargetHospitalId = best_hospital.id
+                        #print("ev",ev.id,"dstgrid",ev.navdstGrid,"dst hc",ev.navTargetHospitalId,"total wait",ev.navEtaMinutes)
+                        ev.navWaitTime = self.env.calculate_eta_plus_wait(ev, best_hospital)
+                        print("Controller:ev",ev.id,"curently in grid",ev.gridIndex,"nav waitime to dst",ev.navWaitTime,"dst grid",ev.navdstGrid)
+                       
+                        ev.aggBusyTime += self.env.calculate_eta_plus_wait(ev, best_hospital)
                 
                 #  REWARD CALCULATION
                 '''candidate_hs = [
@@ -671,9 +707,69 @@ class Controller:
         energy_before = {ev.id: ev.aggIdleEnergy for ev in self.env.evs.values()}
         #print("called the update function")
         self.env.update_after_tick(8)
-
+        #for ev in self.env.evs.values():
+            #if ev.state == EvState.IDLE:
+        for emv,s,a in idle_transitions:
+            if emv.state == EvState.IDLE:#no change is status
+                doner_t = False
+                
+                sr_t = emv.sarns.get("state")
+                #sr_t  = ev.sarns.get("state") 
+                ar_t  = emv.sarns.get("action")
+                rr_t  = emv.sarns.get("reward")
+                st_2_r = self._build_state(emv) #build the next state
+                #doner_t = bool(1)
+            else: #idle vehicle became busy during update
+                doner_t = True
+                #print("ev",emv.id,"became busy from idle")
+                sr_t = emv.sarns.get("state")
+                #sr_t  = ev.sarns.get("state") 
+                ar_t  = emv.sarns.get("action")
+                rr_t  = emv.sarns.get("reward")
+                st_2_r = np.zeros(len(sr_t), dtype=np.float32)
+            sr_t = torch.as_tensor(sr_t, dtype=torch.float32, device=self.device).view(-1)
+            st_2_r = torch.as_tensor(st_2_r, dtype=torch.float32, device=self.device).view(-1) 
+            self.buffer_reposition.push(sr_t, ar_t, rr_t, st_2_r, doner_t)
+            #print("Repositioning transition pushed:",  ev.id, "state",sr_t,"next state",st_2_r,"\n")
+        #elif ev.state == EvState.BUSY and ev.status == "Navigation" :
+        for emv,s,a in busy_transitions:
+            if emv.state == EvState.BUSY: #was busy is busy
+                done_t = False
+                sn_t  = emv.sarns.get("state") #checked size = 4
+                an_t  = emv.sarns.get("action")
+                rn_t  = emv.sarns.get("reward")
+                wits, grids_ids = self.build_state_nav1(ev) #checked size = 4
+                st_2_n = wits
+                
+                    #size =4
+            #done_t = bool(1)
+            else: #was busy, is idle now
+                done_t = True
+                print("ev",emv.id,"became idle after",emv.aggBusyTime,"last known location",emv.gridIndex,"dst",emv.navdstGrid)
+                sn_t  = emv.sarns.get("state") #checked size = 4
+                an_t  = emv.sarns.get("action")
+                rn_t  = emv.sarns.get("reward")
+                wits = np.zeros(len(sn_t),dtype = np.float32)
+                st_2_n = wits
+            if sn_t is None or an_t is None or rn_t is None:
+                    continue
+            sn_t = torch.as_tensor(sn_t, dtype=torch.float32, device=self.device).view(-1)
+            st_2_n = torch.as_tensor(st_2_n, dtype=torch.float32, device=self.device).view(-1)
+            self.buffer_navigation.push(sn_t, an_t, rn_t, st_2_n, done_t)
+            #print("Navigation transition pushed:",  ev.id, "state",sn_t,"next state",st_2_n,"\n")
+            if len(self.buffer_reposition) >= 1000:
+                Sr, Ar, Rr, S2r, Dr = self.buffer_reposition.sample(64, self.device)
+            
+        
+            #print(" tensor pushed for nav",st_2_n,)
+            if len(self.buffer_navigation) >= 1000:
+                Sn, An, Rn, S2n, Dn = self.buffer_navigation.sample(64, self.device)
+    
+                
+                
         # measure how much idle time / energy was added this tick
         for ev in self.env.evs.values():
+            
             prev_idle = idle_before.get(ev.id, ev.aggIdleTime)
             prev_energy = energy_before.get(ev.id, ev.aggIdleEnergy)
 
@@ -687,47 +783,13 @@ class Controller:
 
         #next state???????????????  
         
-        for ev in self.env.evs.values():
-            if ev.state == EvState.IDLE:
-                #s2 = self._build_state(ev)
-                #append this into the push rep trans, remove s2 from there
-                #self._push_reposition_transition(ev)
-
-                #sr_t  = ev.sarns.get("state") 
-                ar_t  = ev.sarns.get("action")
-                rr_t  = ev.sarns.get("reward")
-                st_2_r = self._build_state(ev)
-                doner_t = bool(1)
-                #sr_t = torch.as_tensor(sr_t, dtype=torch.float32, device=self.device).view(-1)
-                st_2_r = torch.as_tensor(st_2_r, dtype=torch.float32, device=self.device).view(-1) 
-                self.buffer_reposition.push(sr_t, ar_t, rr_t, st_2_r, doner_t)
-                print("rep transition pushed:",  ev.id,rr_t)
-                #print("pushed for rep",ev.id)
+        
                 
                 
                 
-                if len(self.buffer_reposition) >= 1000:
-                    Sr, Ar, Rr, S2r, Dr = self.buffer_reposition.sample(64, self.device)
                 
-            elif ev.state == EvState.BUSY and ev.status == "Navigation" :
-                #sn_t  = ev.sarns.get("state") #checked size = 4
-                
-                #an_t  = ev.sarns.get("action")
-                #rn_t  = ev.sarns.get("reward")
-                wits, grids_ids = self.build_state_nav1(ev) #checked size = 4
-                if sn_t is None or an_t is None or rn_t is None:
-                    continue
-                st_2_n = wits #size =4
-                done_t = bool(1)
-                #sn_t = torch.as_tensor(sn_t, dtype=torch.float32, device=self.device).view(-1)
-                st_2_n = torch.as_tensor(st_2_n, dtype=torch.float32, device=self.device).view(-1)
-                self.buffer_navigation.push(sn_t, an_t, rn_t, st_2_n, done_t)
-                print("Navigation transition pushed:",  ev.id, ev.navWaitTime)
-                #print(" tensor pushed for nav",st_2_n,)
-                if len(self.buffer_navigation) >= 1000:
-                    Sn, An, Rn, S2n, Dn = self.buffer_navigation.sample(64, self.device)
-        emv = self.env.evs[1]
         emv2 = self.env.evs[2]
+        emv1 = self.env.evs[1]
         #print("for ev number metric list ",emv.id,"is",emv.metric)
         #print("for ev number metric list ",emv2.id,"is",emv2.metric)
         #print("for ev nummber",emv.id,"idle time is",emv.aggIdleTime)  
@@ -994,14 +1056,16 @@ class Controller:
             if a_gi == ev.nextGrid and ev.status == "Repositioning" :
                 offers += 1
         return offers
-    def _tick_check(self, t: int) -> dict:
+    def _tick_check(self, t: int) :
             
             self.slot_idle_time = []
             self.slot_idle_energy = []
-            self.list_metrics = {} #dict of evids and idle times
-            
+            self.list_metrics = {}#dict of evids and idle times
+            self.nav_metric = {}
 
             # 1) spawn incidents for testing 
+            #for t in range(0,t+1):
+        # 1) spawn incidents
             self._spawn_incidents_for_tick(t)
            #self.env.tick_hospital_waits()
             
@@ -1043,6 +1107,7 @@ class Controller:
             # collect per-tick navigation actions
             nav_actions: list = []
             for ev in self.env.evs.values():
+                self.nav_metric[ev.id] = 0
                 if ev.state == EvState.BUSY and ev.status == "Navigation":
                     state_vec,_ = self.build_state_nav1(ev) 
                     ev.sarns["state"] = state_vec
@@ -1050,7 +1115,10 @@ class Controller:
                     ev.sarns["action"] = a_gi
                     ev.sarns["reward"] = 0.0
                     ev.navEtaMinutes = 0.0
-
+                    busy_time = ev.aggBusyTime
+                    ev.nav_metric.append(busy_time)
+                    
+                    self.nav_metric[ev.id] = ev.nav_metric
                     h = self.env.hospitals.get(a_gi)
                     if h is not None:
                         eta = h.estimate_eta_minutes(ev.location[0], ev.location[1],kmph = np.clip(np.random.normal(40.0, 5.0), 20.0, 80.0))
@@ -1070,8 +1138,10 @@ class Controller:
 
                     try:
                         nav_actions.append((ev.id, a_gi, float(ev.sarns.get("reward", 0.0)), float(ev.navEtaMinutes)))
+                        
                     except Exception:
                         pass
+                    
 
             try:
                 self._last_nav_actions = nav_actions
@@ -1084,14 +1154,14 @@ class Controller:
 
             self.slot_idle_time_avg = sum(self.slot_idle_time)/len(self.slot_idle_time) if self.slot_idle_time else 0.0
             self.slot_idle_energy_avg = sum(self.slot_idle_energy)/len(self.slot_idle_energy) if self.slot_idle_energy else 0.0
-            stats = {"slot idle time": self.slot_idle_time_avg, "slot idle energy": self.slot_idle_energy_avg, "list metrics": self.list_metrics}
+            stats = {"slot idle time": self.slot_idle_time_avg, "slot idle energy": self.slot_idle_energy_avg, "list metrics": self.list_metrics,"list nav metrics":self.nav_metric}
          
                 #print("in time slot metric added")
                 #print("key vlaue pair in test",self.list_metrics.keys,self.list_metrics.values)
                 #print("check", self.list_metrics[ev.id],ev.id)
                        
-            return self.list_metrics
-    def run_test_episode(self, episode_idx: int) -> dict:
+            return stats
+    def run_test_episode(self, episode_idx: int) :
         self._reset_episode()
 
         total_rep_reward = 0.0
@@ -1101,17 +1171,30 @@ class Controller:
         all_dispatches = []
         all_nav_actions = []
         per_tick_dispatch_counts = []
-        self.list_metrics = {} #evid : list of idle times or avg idle time
+        self.list_avg = []
+        self.list_nav_avg =[]
+        self.average_episodic_idle = 0 #evid : list of idle times or avg idle time
+        self.average_episodic_busy = 0
         for t in range(self.ticks_per_ep):
-            metric_list = self._tick_check(t)
+            check_stats = self._tick_check(t)
+            metric_list = check_stats["list metrics"]
+            nav_metrics = check_stats["list nav metrics"]
             #print("in test, the metrics observed are fetched")
             for evid in metric_list:
                 #print("ev id ", evid," metric list", metric_list[evid])
                 avg = sum(metric_list[evid])/len(metric_list[evid]) if metric_list[evid] else 0.0
-                self.list_metrics[evid] = (avg)
-                print("calculated avg idle time for ev", evid, "is", avg)
-                         
+                #self.list_metrics[evid] = (avg)
+                #print("calculated avg idle time for ev", evid, "is", avg)
+                self.list_avg.append(avg)      
+            for rvid in nav_metrics:
+                avrg = sum(nav_metrics[evid])/len(nav_metrics[evid]) if nav_metrics[evid] else 0.0
+                self.list_nav_avg.append(avrg)
            #dict ev.id: ev.idletime
+            if self.list_avg:
+                self.average_episodic_idle = sum(self.list_avg)/len(self.list_avg)
+            if self.list_nav_avg:
+                self.average_episodic_busy = sum(self.list_nav_avg)/len(self.list_nav_avg)
+
             tick_dispatches = getattr(self, "_last_dispatches", []) or []
             try:
                 per_tick_dispatch_counts.append(len(tick_dispatches))
@@ -1228,7 +1311,8 @@ class Controller:
             "total_incidents": len(self.env.incidents),
             "average ep loss": avg_ep_loss,
             "average repo loss": avg_repo_loss,  # Added this key
-            "average episodic idle times": self.list_metrics, #evid : avg idle time over episode
+            "average episodic idle times": self.average_episodic_idle, #evid : avg idle time over episode
+            "average episodic busy times":self.average_episodic_busy
         }
         #print("episodic idle time",stats["average episodic idle times\n"])
         return stats
