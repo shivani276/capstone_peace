@@ -73,8 +73,8 @@ ctrl = Controller(
     csv_path="Data/Fire_Department_and_Emergency_Medical_Services_Dispatched_Calls_for_Service_20251208_with_index.csv"
 )
 #print("initialized evs", ctrl.env)
-n_episodes = 5
-n_tests = 5
+n_episodes = 10
+n_tests = 1
 all_stats = []
 all_nav_loss = []
 all_repo_loss = [] # New list for repositioning

@@ -37,11 +37,12 @@ class NavigationService:
         eta = hospital.estimate_eta_minutes(ev_lat, ev_lng, kmph=40.0)
         
         # If EV has already been assigned to this hospital and reached it, return stored wait time
-        if ev.navTargetHospitalId == hospital.id and ev.navWaitTime >= 0:
-            return ev.navWaitTime
+        #if ev.navTargetHospitalId == hospital.id and ev.navWaitTime >= 0:
+            #return ev.navWaitTime
         
         # Otherwise calculate full wait time (for hospital selection)
         base_wait = float(getattr(hospital, "waitTime", 0.0))
+        #print("hc wait time",base_wait)
         ev_priority = getattr(ev, 'assignedPatientPriority', 2)
         
         # Add service time of higher priority EVs

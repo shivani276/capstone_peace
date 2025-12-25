@@ -229,7 +229,8 @@ class MAP:
             number += 1
             rng = np.random.default_rng()
             lam = H_MIN + H_MAX / 2.0 # mean
-            hc.waitTime = rng.exponential(13) #poisson dist with mean
+            hc.waitTime = min(40, rng.exponential(13)) #poisson dist with mean
+            #print("hc waitime set",hc.waitTime)
             #print(f"[MAP] Hospital waits initialised in [{hc.id}, {hc.waitTime}] minutes.")
         #print("number of hcs",number)
     '''def tick_hospital_waits(self, lam: float = 0.04, wmin: float = 5.0, wmax: float = 90.0, seed: int | None = None) -> None:
@@ -410,7 +411,9 @@ class MAP:
                         #print("ev assgiend patient id",ev.assignedPatientId)
                         #print("incident in dispatch",inc)
                         if ev.gridIndex != ev.nextGrid:
+                            #print("ev",ev.id,"in grid",ev.gridIndex,"with destination grid",ev.navdstGrid,"is moving to grid",ev.nextGrid,"\n")
                             self.move_ev_to_grid(ev.id, ev.nextGrid)
+                            #print("ev moved to grid check?",ev.id,"in grid",ev.gridIndex,"moving to grid",ev.nextGrid,"destination grid",ev.navdstGrid,"\n")
                             if inc is not None:
                                 inc.waitTime += 8.0
                         else:
@@ -429,7 +432,7 @@ class MAP:
                         
 
                         #print("ev",ev.id,"is navigating with remaining time",ev.navEtaMinutes,"total busy time",ev.aggBusyTime,"\n")
-                        if ev.nextGrid != ev.gridIndex:
+                        if ev.nextGrid != ev.gridIndex and ev.nextGrid is not None:
                             #print("nav eta",ev.navEtaMinutes)
                             self.move_ev_to_grid(ev.id, ev.nextGrid)                            
                         
@@ -438,24 +441,32 @@ class MAP:
                               
                         #elif max(0.0,ev.navEtaMinutes) == 0.0 and ev.navTargetHospitalId is not None:
                         elif ev.nextGrid == ev.gridIndex:
-                            #print("ev reached dst grid")
+                            ev.status = "reached" #reached dst grid, now has to goto hc
+                            
                             #print("ev ",ev.id,"nav time",ev.navEtaMinutes,"targethc",ev.navTargetHospitalId,"patient",ev.assignedPatientId)
-                            h = self.hospitals[ev.navTargetHospitalId]  # Get the Hospital object
-                            if ev.assignedPatientPriority == 1:
-                                h.evs_serving_priority_1.append(ev.id)
-                            elif ev.assignedPatientPriority == 2:
-                                h.evs_serving_priority_2.append(ev.id)
-                            else:
-                                h.evs_serving_priority_3.append(ev.id)
-                            ev.navWaitTime -= 8.0
+                            if ev.navTargetHospitalId is not None:
+                                h = self.hospitals[ev.navTargetHospitalId]  # Get the Hospital object
+
+                                if ev.assignedPatientPriority == 1:
+                                    h.evs_serving_priority_1.append(ev.id)
+                                elif ev.assignedPatientPriority == 2:
+                                    h.evs_serving_priority_2.append(ev.id)
+                                else:
+                                    h.evs_serving_priority_3.append(ev.id)
+                                #print("ev ",ev.id,"reached dst hc and got in queue to",h.id,"remaining wait time of ev",ev.navWaitTime)
+                                #print("ev",ev.id,"navtime before",ev.navWaitTime)
+                                #ev.navWaitTime -= 8.0 
+                                print("Map:ev",ev.id,"navtime after update ",ev.navWaitTime)
                             #ev.aggBusyTime = 0.0    #is this service time?
                             if ev.navWaitTime <= 0.0:
-                                
+                                #print("wait time is negative")
                                 if ev.assignedPatientId is not None:
                                     #print("enviromnet lsit incs nav",len(self.incidents))
                                     
                                     inc_n = self.incidents.get(int(ev.assignedPatientId))
                                     ev.release_incident()
+                                    print("ev finished drop off with nav time", ev.navEtaMinutes,ev.status,ev.state)
+                                    #since navwaittime is less than zero, it means serviced
                                     ev.aggBusyTime = 0.0
                                
                                     #print("should be dict",self.incidents,"\n")
@@ -508,16 +519,19 @@ class MAP:
                     #ev.add_idle(8)
                     #print("beforee",ev.aggIdleTime,"evid",ev.id)
                     ev.aggIdleTime += 8
+
                     #print("after",ev.aggIdleTime,"evid",ev.id)
                     #print("sucessful test for idle and stayed,dint add energy")
                 elif ev.status == "Repositioning" or ev.sarns.get("reward") is not None:
                     #ev.execute_reposition()
+
+                    self.move_ev_to_grid(ev.id, ev.nextGrid)  
                     ev.aggIdleEnergy += 0.12  # Fixed energy cost for repositioning from one grid to another
                     ev.aggIdleTime += 8.0  
                     #print("i guess its done?")
                     #print("sucessful test for idle and repositioning")
-                #elif ev.status == "Dispatching" and ev.assignedPatientId is not None:
-                    #ev.state = EvState.BUSY
+                elif ev.status == "Dispatching" and ev.assignedPatientId is not None:
+                    ev.state = EvState.BUSY
                     #print("sucessful test for idle and dispatching, changed state")
             
 

@@ -33,6 +33,7 @@ class RepositioningService:
                     continue
                 neigh_grid = grids[nb]
                 for ev_id in neigh_grid.evs:
+                    
                     neighbour_evs.append(evs[ev_id])
             # 2) Build offers_g: offers from neighbour EVs that want THIS grid
             offers_g = []   # list of tuples (utility, ev_id, ev_obj)
