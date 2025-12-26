@@ -622,6 +622,7 @@ class Controller:
                 ev.sarns["state"] = []
                 ev.sarns["action"] = None
                 ev.sarns["reward"] = 0
+                ev.aggIdleTime = 0
                 state_vec,grid_ids = self.build_state_nav1(ev) #this is the same as idle
                 sn_t = torch.as_tensor(state_vec, dtype=torch.float32, device=self.device).view(-1)
                 #replace this with the below navigation state builder
@@ -639,21 +640,13 @@ class Controller:
                 dest_grid = grid_ids[slo]
                 ev.navdstGrid = dest_grid
                 if ev.gridIndex == ev.navdstGrid:
+                    #print("ev",ev.id,"reached dst",ev.navdstGrid,"nxt grid",ev.nextGrid,"ev status",ev.status)
                     ev.status = "reached" #or already there, in this case
                     ev.nextGrid = ev.gridIndex
-                else:
-                    ev.nextGrid = self.env.next_grid_towards(ev.gridIndex, ev.navdstGrid)
-                #print("ev",ev.id,"in grid",ev.gridIndex,"dst grid",ev.navdstGrid,"moving to grid",ev.nextGrid,"status of ev",ev.status)
-
-                best_hospital = None
-            elif ev.state == EvState.BUSY and ev.status == "reached":
-                if ev.nextGrid == ev.gridIndex:
-                    #ev.status = "reached"
-                    #print("ev is in dst grid",ev.id,ev.gridIndex)
                     hospitals_in_grid = [h for h in self.env.hospitals.values() if h.gridIndex == ev.navdstGrid]
                     if hospitals_in_grid:
                         best_hospital = self.env.select_hospital(ev, hospitals_in_grid, self.env.calculate_eta_plus_wait)
-                        #print("selected hc",best_hospital,"for ev",ev.id,"in grid",ev.gridIndex)
+                        #print("selected hc",best_hospital.id,"for ev",ev.id,"in grid",ev.gridIndex,"status",ev.status)
                     else:
                         #print("major blunder")
                         best_hospital = self.env.select_hospital(ev, list(self.env.hospitals.values()), self.env.calculate_eta_plus_wait)
@@ -663,10 +656,17 @@ class Controller:
                         ev.navTargetHospitalId = best_hospital.id
                         #print("ev",ev.id,"dstgrid",ev.navdstGrid,"dst hc",ev.navTargetHospitalId,"total wait",ev.navEtaMinutes)
                         ev.navWaitTime = self.env.calculate_eta_plus_wait(ev, best_hospital)
-                        print("Controller:ev",ev.id,"curently in grid",ev.gridIndex,"nav waitime to dst",ev.navWaitTime,"dst grid",ev.navdstGrid)
+                        #print("Controller:ev",ev.id,"curently in grid",ev.gridIndex,"nav waitime to dst",ev.navWaitTime,"dst grid",ev.navdstGrid)
                        
                         ev.aggBusyTime += self.env.calculate_eta_plus_wait(ev, best_hospital)
                 
+                    
+                ev.nextGrid = self.env.next_grid_towards(ev.gridIndex, ev.navdstGrid)
+                #print("ev",ev.id," dst",ev.navdstGrid,"nxt grid",ev.nextGrid,"ev status",ev.status)
+                #print("ev",ev.id,"in grid",ev.gridIndex,"dst grid",ev.navdstGrid,"moving to grid",ev.nextGrid,"status of ev",ev.status)
+
+                
+            
                 #  REWARD CALCULATION
                 '''candidate_hs = [
                 h for h in self.env.hospitals.values()
@@ -745,7 +745,7 @@ class Controller:
             #done_t = bool(1)
             else: #was busy, is idle now
                 done_t = True
-                print("ev",emv.id,"became idle after",emv.aggBusyTime,"last known location",emv.gridIndex,"dst",emv.navdstGrid)
+                #print("ev",emv.id,"became idle after",emv.aggBusyTime,"last known location",emv.gridIndex,"dst",emv.navdstGrid)
                 sn_t  = emv.sarns.get("state") #checked size = 4
                 an_t  = emv.sarns.get("action")
                 rn_t  = emv.sarns.get("reward")

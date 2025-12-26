@@ -404,6 +404,7 @@ class MAP:
                     #
                     if ev.status == "Dispatching" and ev.assignedPatientId is not None:
                         inc = self.incidents.get(ev.assignedPatientId)
+                        ev.aggIdleTime = 0
                         #print("attricbutes of inc ev id",inc.id,"assgined patient id",ev.assignedPatientId)
                         
                         #print("enviromnet lsit incs disp",len(self.incidents))
@@ -426,24 +427,31 @@ class MAP:
                                 ev.nextGrid = None
                                 inc.status = IncidentStatus.SERVICING
 
-                    if ev.status == "Navigation" and ev.nextGrid is not None:
+                    if (ev.status == "Navigation" or ev.status == "reached") and ev.nextGrid is not None:
+                        #print("nav wait time after dqn",ev.navWaitTime)
                         ev.navEtaMinutes -= 8
                         ev.aggBusyTime += 8
+                        ev.aggIdleTime = 0
+                        
+                       
+
                         
 
                         #print("ev",ev.id,"is navigating with remaining time",ev.navEtaMinutes,"total busy time",ev.aggBusyTime,"\n")
-                        if ev.nextGrid != ev.gridIndex and ev.nextGrid is not None:
+                        if ev.nextGrid != ev.navdstGrid and ev.nextGrid is not None:
                             #print("nav eta",ev.navEtaMinutes)
-                            self.move_ev_to_grid(ev.id, ev.nextGrid)                            
+                            self.move_ev_to_grid(ev.id, ev.nextGrid)   
+                            #print("ev",ev.id,"status",ev.status,"dst grid",ev.navdstGrid,"in grid",ev.gridIndex)                         
                         
                              
                             #print("ev ",ev.id,"reached grid",ev.gridIndex,"total navigating time",ev.aggBusyTime)
                               
                         #elif max(0.0,ev.navEtaMinutes) == 0.0 and ev.navTargetHospitalId is not None:
-                        elif ev.nextGrid == ev.gridIndex:
+                        elif ev.nextGrid == ev.gridIndex == ev.navdstGrid:
                             ev.status = "reached" #reached dst grid, now has to goto hc
-                            
-                            #print("ev ",ev.id,"nav time",ev.navEtaMinutes,"targethc",ev.navTargetHospitalId,"patient",ev.assignedPatientId)
+                            #print("nav wait time after dqn",ev.navWaitTime,ev.id)
+                            #ev.navWaitTime -= 8
+                            #print("ev",ev.id,"status",ev.status,"dst grid",ev.navdstGrid,"in grid",ev.gridIndex)          
                             if ev.navTargetHospitalId is not None:
                                 h = self.hospitals[ev.navTargetHospitalId]  # Get the Hospital object
 
@@ -453,19 +461,34 @@ class MAP:
                                     h.evs_serving_priority_2.append(ev.id)
                                 else:
                                     h.evs_serving_priority_3.append(ev.id)
+                                ev.navWaitTime -= 8
+                                #print("nav wait time updated",ev.navWaitTime,ev.id)
                                 #print("ev ",ev.id,"reached dst hc and got in queue to",h.id,"remaining wait time of ev",ev.navWaitTime)
                                 #print("ev",ev.id,"navtime before",ev.navWaitTime)
                                 #ev.navWaitTime -= 8.0 
-                                print("Map:ev",ev.id,"navtime after update ",ev.navWaitTime)
+                                #print("Map:ev",ev.id,"navtime after update ",ev.navWaitTime)
                             #ev.aggBusyTime = 0.0    #is this service time?
                             if ev.navWaitTime <= 0.0:
+                                ev.navWaitTime = 0
                                 #print("wait time is negative")
                                 if ev.assignedPatientId is not None:
                                     #print("enviromnet lsit incs nav",len(self.incidents))
                                     
                                     inc_n = self.incidents.get(int(ev.assignedPatientId))
+                                    h = self.hospitals[ev.navTargetHospitalId]  # Get the Hospital object
+
+                                    if ev.assignedPatientPriority == 1:
+                                        h.evs_serving_priority_1.remove(ev.id)
+
+                                    elif ev.assignedPatientPriority == 2:
+                                        h.evs_serving_priority_2.remove(ev.id)
+                                    else:
+                                        h.evs_serving_priority_3.remove(ev.id)
+                                    #print("ev",ev.id,"removed from queue",h.id,"remaining queue 1",len(h.evs_serving_priority_1),"rem queue 2",h.evs_serving_priority_2,"rem queue3",h.evs_serving_priority_3)
                                     ev.release_incident()
-                                    print("ev finished drop off with nav time", ev.navEtaMinutes,ev.status,ev.state)
+                                    #ev.navWaitTime = 0
+                                    #ev.navEtaMinutes = 0
+                                    #print("ev finished drop off with nav time", ev.navEtaMinutes,ev.status,ev.state)
                                     #since navwaittime is less than zero, it means serviced
                                     ev.aggBusyTime = 0.0
                                
@@ -479,14 +502,13 @@ class MAP:
                                     #print("incident")
                                     
                                     if inc_n is not None:
-                                        inc_n.mark_resolved()
-                                        
-                                        
-                                        
+                                        inc_n.mark_resolved() 
                                         g = self.grids.get(inc_n.gridIndex)
                                         if g is not None:
                                             g.remove_incident(inc_n.id)
                                             #del inc_n
+                    #if ev.status == "reached" and ev.state ==  EvState.BUSY:
+
                     '''inc = self.incidents.get(ev.assignedPatientId)
                        if inc is not None:
                         dest_grid_idx = ev.navdstGrid
@@ -524,14 +546,16 @@ class MAP:
                     #print("sucessful test for idle and stayed,dint add energy")
                 elif ev.status == "Repositioning" or ev.sarns.get("reward") is not None:
                     #ev.execute_reposition()
-
-                    self.move_ev_to_grid(ev.id, ev.nextGrid)  
+                    if ev.nextGrid and ev.gridIndex is not None:
+                        self.move_ev_to_grid(ev.id, ev.nextGrid)  
                     ev.aggIdleEnergy += 0.12  # Fixed energy cost for repositioning from one grid to another
                     ev.aggIdleTime += 8.0  
+                    print("ev",ev.id,"rep to",ev.nextGrid,"currently in",ev.gridIndex,"idle time",ev.aggIdleTime,"action taken",ev.sarns.get("action"))
                     #print("i guess its done?")
                     #print("sucessful test for idle and repositioning")
                 elif ev.status == "Dispatching" and ev.assignedPatientId is not None:
                     ev.state = EvState.BUSY
+                    ev.aggIdleTime = 0
                     #print("sucessful test for idle and dispatching, changed state")
             
 
