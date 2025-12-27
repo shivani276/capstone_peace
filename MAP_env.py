@@ -401,7 +401,7 @@ class MAP:
         for ev in self.evs.values():
             if ev.nextGrid and ev.id is not None:
                 if ev.state == EvState.BUSY: #and ev.gridIndex == ev.navdstGrid: #and ev.assignedPatientId is not None:
-                    #
+                    ev.aggIdleTime = 0
                     if ev.status == "Dispatching" and ev.assignedPatientId is not None:
                         inc = self.incidents.get(ev.assignedPatientId)
                         ev.aggIdleTime = 0
@@ -470,6 +470,7 @@ class MAP:
                             #ev.aggBusyTime = 0.0    #is this service time?
                             if ev.navWaitTime <= 0.0:
                                 ev.navWaitTime = 0
+                                ev.aggBusyTime = 0
                                 #print("wait time is negative")
                                 if ev.assignedPatientId is not None:
                                     #print("enviromnet lsit incs nav",len(self.incidents))
@@ -490,7 +491,7 @@ class MAP:
                                     #ev.navEtaMinutes = 0
                                     #print("ev finished drop off with nav time", ev.navEtaMinutes,ev.status,ev.state)
                                     #since navwaittime is less than zero, it means serviced
-                                    ev.aggBusyTime = 0.0
+                                    #ev.aggBusyTime = 0.0
                                
                                     #print("should be dict",self.incidents,"\n")
                                     #print("keys",self.incidents.keys(),"\n","assgined id",ev.assignedPatientId)
@@ -535,29 +536,30 @@ class MAP:
 
                 
 
-            # 1) EV staying idle in its chosen grid
-            if ev.state == EvState.IDLE:
-                if ev.gridIndex == ev.sarns.get("action"):
-                    #ev.add_idle(8)
-                    #print("beforee",ev.aggIdleTime,"evid",ev.id)
-                    ev.aggIdleTime += 8
+                # 1) EV staying idle in its chosen grid
+                if ev.state == EvState.IDLE:
+                    if ev.gridIndex == ev.sarns.get("action") and ev.sarns.get("reward") ==0:
+                        #ev.add_idle(8)
+                        #print("beforee",ev.aggIdleTime,"evid",ev.id)
+                        ev.aggIdleTime += 8
 
-                    #print("after",ev.aggIdleTime,"evid",ev.id)
-                    #print("sucessful test for idle and stayed,dint add energy")
-                elif ev.status == "Repositioning" or ev.sarns.get("reward") is not None:
-                    #ev.execute_reposition()
-                    if ev.nextGrid and ev.gridIndex is not None:
-                        self.move_ev_to_grid(ev.id, ev.nextGrid)  
-                    ev.aggIdleEnergy += 0.12  # Fixed energy cost for repositioning from one grid to another
-                    ev.aggIdleTime += 8.0  
-                    print("ev",ev.id,"rep to",ev.nextGrid,"currently in",ev.gridIndex,"idle time",ev.aggIdleTime,"action taken",ev.sarns.get("action"))
-                    #print("i guess its done?")
-                    #print("sucessful test for idle and repositioning")
-                elif ev.status == "Dispatching" and ev.assignedPatientId is not None:
-                    ev.state = EvState.BUSY
-                    ev.aggIdleTime = 0
-                    #print("sucessful test for idle and dispatching, changed state")
-            
+                        #print("after",ev.aggIdleTime,"evid",ev.id)
+                        #print("sucessful test for idle and stayed,dint add energy")
+                    #elif ev.status == "Repositioning" or ev.sarns.get("reward") is not None:
+                        #ev.execute_reposition()
+                    elif ev.gridIndex != ev.sarns.get("action") and ev.sarns.get("reward")!=0:
+                        if ev.nextGrid and ev.gridIndex is not None:
+                            self.move_ev_to_grid(ev.id, ev.nextGrid)  
+                        ev.aggIdleEnergy += 0.12  # Fixed energy cost for repositioning from one grid to another
+                        ev.aggIdleTime += 8.0  
+                        #print("ev",ev.id,"rep to",ev.nextGrid,"currently in",ev.gridIndex,"idle time",ev.aggIdleTime,"action taken",ev.sarns.get("action"))
+                        #print("i guess its done?")
+                        #print("sucessful test for idle and repositioning")
+                    if ev.status == "Dispatching" and ev.assignedPatientId is not None:
+                        ev.state = EvState.BUSY
+                        ev.aggIdleTime = 0
+                        #print("sucessful test for idle and dispatching, changed state")
+                    print("ev",ev.id,"status",ev.status,"idle time",ev.aggIdleTime,"busy time",ev.aggBusyTime)
 
                 
                 #print("busy time after",ev.aggBusyTime,"evid",ev.id)
@@ -612,5 +614,118 @@ class MAP:
 
                     
                 
+    def update_Repositioning(self, dt_minutes: float) -> None:
+        for ev in self.evs.values():
+            if ev.state == EvState.IDLE and ev.status == "Repositioning":
+                print("ev ",ev.id,"in grid",ev.gridIndex,"total idle time",ev.aggIdleTime,"total idle energy",ev.aggIdleEnergy)
+                if ev.gridIndex != ev.nextGrid and ev.nextGrid is not None:
+                    ev.aggIdleEnergy += 0.12  # Fixed energy cost for repositioning from one grid to another
+                    g = self.grids.get(ev.nextGrid)
+                    if g is not None:
+                        #print("Entering this loop")
+                        ev.add_idle(8) #g.estimate_eta_minutes(ev.location[0], ev.location[1], 40.0))
+                    self.move_ev_to_grid(ev.id, ev.nextGrid)
+                    print("ev ",ev.id,"reached grid",ev.gridIndex,"total idle time",ev.aggIdleTime,"total idle energy",ev.aggIdleEnergy)
+                    ev.nextGrid = None
+                    ev.status = "Idle"  
+            elif ev.state == EvState.IDLE and ev.status == "Idle":
+                
+                ev.add_idle(8.0)
+                #print("ev ",ev.id,"in grid",ev.gridIndex,"total idle time",ev.aggIdleTime)
+            
+                        
+       
+    def update_Dispatching(self, dt_minutes: float = 8.0) -> None:
+        for ev in self.evs.values():
+            if ev.state == EvState.BUSY and ev.status == "Dispatching" and ev.assignedPatientId is not None:
+                #print("ev ",ev.id,"in grid",ev.gridIndex,"patient id",ev.assignedPatientId)
+                inc = self.incidents.get(ev.assignedPatientId)
+                if inc is not None:
+                    #print("Entering this loop")
+                    #print("ev ",ev.id,"in grid",ev.gridIndex,"next grid",ev.nextGrid,"patient id",ev.assignedPatientId)
+                    if ev.gridIndex != ev.nextGrid and ev.nextGrid is not None:
+                        g= self.grids.get(ev.nextGrid)
+                        if g is not None:
+                            ev.aggBusyTime += g.estimate_eta_minutes(ev.location[0], ev.location[1], 40.0)
+                            inc.waitTime += g.estimate_eta_minutes(ev.location[0], ev.location[1], 40.0)
+                        self.move_ev_to_grid(ev.id, ev.nextGrid)
+                        #print("ev ",ev.id,"reached grid",ev.gridIndex,"total busy time",ev.aggBusyTime)
+                        
+                    elif ev.gridIndex == inc.gridIndex:
+                        #print("Entering this loop 2")
+                        inc.waitTime += inc.estimate_eta_minutes(ev.location[0], ev.location[1], 40.0)
+                        ev.aggBusyTime += inc.estimate_eta_minutes(ev.location[0], ev.location[1], 40.0)
+                        ev.status = "Navigation"
+                        ev.location = inc.location
+                        #print("ev",ev.id,"status",ev.status,"inc id",inc.id,"inc wait time",inc.waitTime)
+                        inc.status = IncidentStatus.SERVICING
+                ev.nextGrid = None
 
+
+    def update_Navigation(self, dt_minutes: float = 8.0) -> None:
+        for ev in self.evs.values():
+            if ev.state == EvState.BUSY and ev.status == "Navigation" and ev.assignedPatientId is not None and ev.nextGrid is not None:
+                g= self.grids.get(ev.nextGrid)
+                print("ev ",ev.id,"in grid",ev.gridIndex,"next grid",ev.nextGrid,"ev nav eta",ev.navEtaMinutes)
+                if ev.gridIndex != ev.navdstGrid:
+                        
+                    if g is not None:
+                        ev.navEtaMinutes -= g.estimate_eta_minutes(ev.location[0], ev.location[1], 40.0)
+                        ev.aggBusyTime += g.estimate_eta_minutes(ev.location[0], ev.location[1], 40.0)
+                    self.move_ev_to_grid(ev.id, ev.nextGrid)
+                    print("ev ",ev.id,"reached grid",ev.gridIndex,"total navigating time",ev.navEtaMinutes)
+                elif ev.gridIndex == ev.navdstGrid:
+                    ev.status = "reached"
+            elif ev.gridIndex == ev.navdstGrid and ev.navEtaMinutes <5.0 and ev.navTargetHospitalId is not None and ev.assignedPatientId is not None:
+                print("ev",ev.id,"Hospital id",ev.navTargetHospitalId)
+                if ev.status == "reached":
+                    count =+1
+                    h = self.hospitals[ev.navTargetHospitalId]  # Get the Hospital object
+                    if ev.id not in h.evs_serving_priority_1 and ev.id not in h.evs_serving_priority_2 and ev.id not in h.evs_serving_priority_3:
+                        print("ev ",ev.id,"at hospital",h.id,"waiting to be served")
+                        if ev.assignedPatientPriority == 1 and ev.id not in h.evs_serving_priority_1:
+                            h.evs_serving_priority_1.append(ev.id)
+                        elif ev.assignedPatientPriority == 2 and ev.id not in h.evs_serving_priority_2:
+                            h.evs_serving_priority_2.append(ev.id)
+                        else:
+                            h.evs_serving_priority_3.append(ev.id)
+                    ev.navWaitTime -= 8 #h.estimate_eta_minutes(ev.location[0], ev.location[1], 40.0)
+                    print("ev ",ev.id,"at hospital",h.id,"total wait time",ev.navWaitTime)
+                    if ev.navWaitTime <= 5.0:
+                        inc_n = self.incidents.get(int(ev.assignedPatientId))
+                        if inc_n is not None:
+                            inc_n.mark_resolved()
+                            print("number of ticks it took to service",count)
+                            ev.release_incident()
+                            g = self.grids.get(inc_n.gridIndex)
+                            if g is not None:
+                                g.remove_incident(inc_n.id)
+    def update_incidents(self, dt_minutes: float = 8.0) -> None:
+        # Incident updates
+        to_delete = []
+        for inc_id, inc in list(self.incidents.items()):
+            if inc.status != IncidentStatus.UNASSIGNED:
+                continue
+
+            if inc.waitTime < P_MAX:
+                inc.add_wait(dt_minutes)
+            else:
+                inc.status = IncidentStatus.CANCELLED
+                g = self.grids.get(inc.gridIndex)
+                if g is not None and inc_id in g.incidents:
+                    g.incidents.remove(inc_id)
+                to_delete.append(inc_id)
+
+        for inc_id in to_delete:
+            del self.incidents[inc_id]
+
+
+                
+                
+                
+        
+
+
+
+        
 
