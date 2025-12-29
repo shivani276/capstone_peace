@@ -429,7 +429,7 @@ class MAP:
 
                     if (ev.status == "Navigation" or ev.status == "reached") and ev.nextGrid is not None:
                         #print("nav wait time after dqn",ev.navWaitTime)
-                        ev.navEtaMinutes -= 8
+                        
                         ev.aggBusyTime += 8
                         ev.aggIdleTime = 0
                         
@@ -461,32 +461,35 @@ class MAP:
                                     h.evs_serving_priority_2.append(ev.id)
                                 else:
                                     h.evs_serving_priority_3.append(ev.id)
-                                ev.navWaitTime -= 8
+                                
                                 #print("nav wait time updated",ev.navWaitTime,ev.id)
                                 #print("ev ",ev.id,"reached dst hc and got in queue to",h.id,"remaining wait time of ev",ev.navWaitTime)
                                 #print("ev",ev.id,"navtime before",ev.navWaitTime)
                                 #ev.navWaitTime -= 8.0 
                                 #print("Map:ev",ev.id,"navtime after update ",ev.navWaitTime)
-                            #ev.aggBusyTime = 0.0    #is this service time?
+                                #ev.aggBusyTime = 0.0    #is this service time?
+                            ev.navWaitTime -= 8
                             if ev.navWaitTime <= 0.0:
                                 ev.navWaitTime = 0
                                 ev.aggBusyTime = 0
                                 #print("wait time is negative")
-                                if ev.assignedPatientId is not None:
+                                if ev.assignedPatientId is not None and ev.navTargetHospitalId is not None:
                                     #print("enviromnet lsit incs nav",len(self.incidents))
                                     
                                     inc_n = self.incidents.get(int(ev.assignedPatientId))
-                                    h = self.hospitals[ev.navTargetHospitalId]  # Get the Hospital object
+                                    if ev.navTargetHospitalId is not None:
+                                        h = self.hospitals[ev.navTargetHospitalId]  # Get the Hospital object
 
-                                    if ev.assignedPatientPriority == 1:
-                                        h.evs_serving_priority_1.remove(ev.id)
+                                        if ev.assignedPatientPriority == 1:
+                                            h.evs_serving_priority_1.remove(ev.id)
 
-                                    elif ev.assignedPatientPriority == 2:
-                                        h.evs_serving_priority_2.remove(ev.id)
-                                    else:
-                                        h.evs_serving_priority_3.remove(ev.id)
-                                    #print("ev",ev.id,"removed from queue",h.id,"remaining queue 1",len(h.evs_serving_priority_1),"rem queue 2",h.evs_serving_priority_2,"rem queue3",h.evs_serving_priority_3)
-                                    ev.release_incident()
+                                        elif ev.assignedPatientPriority == 2:
+                                            h.evs_serving_priority_2.remove(ev.id)
+                                        else:
+                                            h.evs_serving_priority_3.remove(ev.id)
+                                        #print("ev",ev.id,"removed from queue",h.id,"remaining queue 1",len(h.evs_serving_priority_1),"rem queue 2",h.evs_serving_priority_2,"rem queue3",h.evs_serving_priority_3)
+                                        ev.release_incident()
+                                    
                                     #ev.navWaitTime = 0
                                     #ev.navEtaMinutes = 0
                                     #print("ev finished drop off with nav time", ev.navEtaMinutes,ev.status,ev.state)
@@ -559,19 +562,16 @@ class MAP:
                         ev.state = EvState.BUSY
                         ev.aggIdleTime = 0
                         #print("sucessful test for idle and dispatching, changed state")
-                    print("ev",ev.id,"status",ev.status,"idle time",ev.aggIdleTime,"busy time",ev.aggBusyTime)
+                    #print("ev",ev.id,"status",ev.status,"idle time",ev.aggIdleTime,"busy time",ev.aggBusyTime)
 
                 
-                #print("busy time after",ev.aggBusyTime,"evid",ev.id)
-                #print("sucessful test for navigating")
-
-                '''
-                hc_id = ev.navTargetHospitalId
-                if hc_id is not None:
-                    hospital = self.hospitals.get(hc_id)
-                    if hospital is not None and getattr(hospital, "gridIndex", None) is not None:
-                        ev.nextGrid = self.next_grid_towards(ev.gridIndex, hospital.gridIndex)
-                        '''
+                    #print("busy time after",ev.aggBusyTime,"evid",ev.id)
+                    #print("sucessful test for navigating")
+                #print("ev id",ev.id,"status",ev.status,"grid id",ev.gridIndex,"next grid",ev.nextGrid,"idle time",ev.aggIdleTime,"idle energy",ev.aggIdleEnergy,"busy time",ev.aggBusyTime,"nav eta",ev.navEtaMinutes,"nav waittime",ev.navWaitTime,"target hc",ev.navTargetHospitalId)
+            
+                
+            
+        
 
 
         # Incident updates
@@ -597,18 +597,8 @@ class MAP:
         for g in self.grids.values():
             g.imbalance = g.calculate_imbalance(self.evs, self.incidents)
         
-    '''def update_Navigation(self, dt_minutes: float = 8.0) -> None:
-        for ev in self.evs.values():
-            if ev.state == EvState.BUSY:
-                #ev.add_busy(8)
-                hc_id = ev.navTargetHospitalId
-                if hc_id is not None:
-                    hospital = self.hospitals.get(hc_id)
-                    if hospital is not None and getattr(hospital, "gridIndex", None) is not None:
-                        ev.nextGrid = self.next_grid_towards(ev.gridIndex, hospital.gridIndex)
-                        
-        '''
-    #def update_after_timeslot(self, dt_minutes: float = 8.0) -> None:
+    
+    
 
 
 
