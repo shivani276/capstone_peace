@@ -928,3 +928,79 @@ def plot_energy_idle_tradeoff(all_episode_stats):
 
 #plot_real_workload(stats_history)
 '''
+
+#---------------------------helpers fixes
+
+def build_daily_incident_schedule(
+    df: pd.DataFrame,
+    day: pd.Timestamp,
+    id_col: str = "index",
+    time_col: str = "Received DtTm",
+    lat_col: str | None = "Latitude",
+    lng_col: str | None = "Longitude",
+    wkt_col: str | None = None,
+    priority_col: str | None = "Final Priority",
+) -> Dict[int, List[Tuple[int, pd.Timestamp, float, float, int]]]:
+    """
+    Returns {tick: [(ts, lat, lng, priority), ...], ...} for a single calendar day in df.
+    """
+    tmp = df.copy()
+    tmp[time_col] = pd.to_datetime(tmp[time_col], format="%Y %b %d %I:%M:%S %p", errors="coerce")
+    day_start = pd.Timestamp(day.normalize())
+    day_end = day_start + pd.Timedelta(days=1)
+    tmp = tmp[(tmp[time_col] >= day_start) & (tmp[time_col] < day_end)]
+
+    coords: List[Tuple[int, pd.Timestamp, float, float, int]] = []
+
+    # --- BRANCH 1: Latitude and Longitude Columns ---
+    if lat_col and lng_col and lat_col in tmp.columns and lng_col in tmp.columns:
+        tmp = tmp.dropna(subset=[lat_col, lng_col])
+
+        # Priority Handling
+        if priority_col and priority_col in tmp.columns:
+            priorities = tmp[priority_col].fillna(1).astype(int)
+        else:
+            priorities = [1] * len(tmp)
+        
+        # === ID FIX START ===
+        if id_col == 'index' and 'index' not in tmp.columns:
+            ids_to_iterate = tmp.index
+        else:
+            # If id_col is a real column name, verify it exists first
+            if id_col not in tmp.columns:
+                 raise RuntimeError(f"Missing id column '{id_col}' in dataset")
+            ids_to_iterate = tmp[id_col]
+        # === ID FIX END ===
+
+        # UPDATE: Used 'ids_to_iterate' in the zip() below
+        for inc_id, ts, lat, lng, priority in zip(ids_to_iterate, tmp[time_col], tmp[lat_col], tmp[lng_col], priorities):
+            if pd.notna(lat) and pd.notna(lng):
+                pri = int(priority) if pd.notna(priority) else 1
+                coords.append((int(inc_id), ts, float(lat), float(lng), pri))
+
+    # --- BRANCH 2: WKT Column ---
+    elif wkt_col and wkt_col in tmp.columns:
+        # Priority Handling
+        if priority_col and priority_col in tmp.columns:
+            priorities = tmp[priority_col].fillna(1).astype(int)
+        else:
+            priorities = [1] * len(tmp)
+        
+        # === ID FIX REPEATED FOR WKT BRANCH ===
+        if id_col == 'index' and 'index' not in tmp.columns:
+            ids_to_iterate = tmp.index
+        else:
+            if id_col not in tmp.columns:
+                 raise RuntimeError(f"Missing id column '{id_col}' in dataset")
+            ids_to_iterate = tmp[id_col]
+        # ======================================
+
+        # UPDATE: Used 'ids_to_iterate' in the zip() below
+        for inc_id, ts, w, priority in zip(ids_to_iterate, tmp[time_col], tmp[wkt_col], priorities):
+            p = parse_wkt_row(w)
+            if p:
+                lat, lng = p
+                pri = int(priority) if pd.notna(priority) else 1
+                coords.append((int(inc_id), ts, lat, lng, pri))
+    else:
+        return {}
