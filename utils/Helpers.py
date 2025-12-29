@@ -169,7 +169,7 @@ def build_daily_incident_schedule(
         else:
             priorities = [1] * len(tmp)
         
-        for inc_id, ts, w, priority, rsp, hosp in zip(tmp[id_col], tmp[time_col], tmp[lat_col], tmp[lng_col], priorities, tmp[response_col], tmp[hospital_col]):
+        for inc_id, ts, w, priority, rsp, hosp in zip(tmp[id_col], tmp[time_col], tmp[wkt_col], priorities, tmp[response_col], tmp[hospital_col]):
             p = parse_wkt_row(w)
             if p:
                 lat, lng = p
@@ -203,11 +203,11 @@ def _safe_norm(x: float, xmin: float, xmax: float, invert: bool = False) -> floa
 #Navigation utility
 def utility_navigation(R_busy: float, H_min: float = 0.0, H_max: float = H_MAX) -> float:
   if R_busy < H_min:
-    U_N =1
-  elif H_min<R_busy< H_max:
-    U_N = (R_busy-H_min)/(H_max-H_min)
+    U_N = 1
+  elif H_min < R_busy < H_max:
+    U_N = (H_max - R_busy) / (H_max - H_min)  # Higher R_busy = LOWER reward
   else:
-    U_N =0
+    U_N = 0
   return U_N
 
 #Dispatch utilities
