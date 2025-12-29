@@ -567,7 +567,7 @@ class Controller:
                 pass
             self._spawn_success +=1
 
-    def _tick(self, t: int) -> None:
+    def _tick(self, t: int, training: bool = True): 
         #print("called tick")
         
 
@@ -1255,5 +1255,55 @@ class Controller:
         }
         #print("episodic idle time",stats["average episodic idle times\n"])
         return stats
+    
+
+    def run_inspection_episode(self, episode_idx: int):
+        print(f"[Inspection] Starting Episode {episode_idx} trace...")
+        self._reset_episode()
+        
+        trace_data = []
+
+        for t in range(self.ticks_per_ep):
+            self._tick(t, training=False)
+            
+            # === FIX: USE CAPITALIZED KEYS TO MATCH YOUR MAIN SCRIPT ===
+            for ev in self.env.evs.values():
+                trace_data.append({
+                    "Tick": t,                  # Was "t"
+                    "EV_ID": ev.id,             # Was "ev_id"
+                    "State": ev.state.name,     # Was "state"
+                    "Status": ev.status,        # Was "status"
+                    "Grid": ev.gridIndex,       # Was "grid"
+                    "Lat": ev.location[0],
+                    "Lng": ev.location[1],
+                    
+                    # These match your requested print columns
+                    "Episode_Total_Idle": ev.aggIdleTime,
+                    "Current_Idle_Buffer": getattr(ev, "idleDuration", 0), # Uses idleDuration if available
+                    "Energy": ev.aggIdleEnergy
+                })
+
+        print("[Inspection] Trace complete.")
+        
+        # --- Stats Collection (Keep this for graphs) ---
+        waits = []
+        for inc in getattr(self, "_spawned_incidents", {}).values():
+            w = inc.get_wait_minutes()
+            if w is not None:
+                waits.append(w)
+        
+        avg_wait = sum(waits) / len(waits) if waits else 0.0
+
+        stats = {
+            "episode": episode_idx,
+            "total_incidents": len(self.env.incidents),
+            "avg_patient_wait": avg_wait,
+            "all_wait_times": waits,
+            "vehicle_energy": {ev.id: ev.aggIdleEnergy for ev in self.env.evs.values()},
+            "vehicle_idle_time": {ev.id: ev.aggIdleTime for ev in self.env.evs.values()} 
+        }
+
+        df_trace = pd.DataFrame(trace_data)
+        return df_trace, stats
             
             

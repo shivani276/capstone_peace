@@ -2,7 +2,7 @@
 import matplotlib.pyplot as plt
 import pandas as pd
 from MAP_env import MAP
-from Controller import Controller
+from controller_copy import Controller
 import numpy as np
 # Initialize Environment
 env = MAP("Data/grid_config_2d.json")
@@ -21,8 +21,8 @@ ctrl = Controller(
 n_episodes = 1
 all_wait_times = []
 stats_history=[]
-#all_incident_data = []
-'''
+all_incident_data = []
+
 #stats_list = []
 #for ep in range(1, 100):
     #stats = ctrl.run_training_episode(ep)
@@ -30,8 +30,8 @@ stats_history=[]
 
 for ep in range(n_episodes):
 
-    #df_trace, stats = ctrl.run_inspection_episode(ep)
-    stats = ctrl.run_test_episode(ep)
+    df_trace, stats = ctrl.run_inspection_episode(ep)
+    stats = ctrl.run_training_episode(ep)
     stats_history.append(stats)
     daily_data = []
     for inc in ctrl._spawned_incidents.values():
@@ -40,12 +40,19 @@ for ep in range(n_episodes):
         
         # Get the priority
         p = inc.priority
+
+        if w is not None:
+            daily_data.append({
+                "Episode": ep,
+                "Wait_Time": w,
+                "Priority": p
+            })
             
     # Add to master list    
     all_incident_data.extend(daily_data)
  
 # 2. Filter for a specific EV to see its "Life Story"
-ev_id_to_watch = 11  # Change this to any EV ID
+ev_id_to_watch = 1 # Change this to any EV ID
 ev_data = df_trace[df_trace["EV_ID"] == ev_id_to_watch]
 
 # 3. Print the first 20 ticks to see it accumulating
@@ -67,9 +74,9 @@ if busy_moments.empty:
 else:
     print("EV finally got to work at these ticks:")
     print(busy_moments.head(50))
+
+
 '''
-
-
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -314,7 +321,7 @@ if N > 0:
 else:
     print("Cannot plot: No data available to compare.")
 
-
+'''
 
 
 
