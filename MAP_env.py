@@ -473,7 +473,7 @@ class MAP:
                                 ev.navWaitTime = 0
                                 ev.aggBusyTime = 0
                                 #print("wait time is negative")
-                                if ev.assignedPatientId is not None:
+                                if ev.assignedPatientId is not None and ev.navTargetHospitalId is not None:
                                     #print("enviromnet lsit incs nav",len(self.incidents))
                                     
                                     inc_n = self.incidents.get(int(ev.assignedPatientId))

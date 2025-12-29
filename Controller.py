@@ -29,7 +29,7 @@ class Controller:
         env: MAP,
         ticks_per_ep: int = 180,
         seed: int = 123,
-        csv_path: str = "Data/5Years_SF_calls_latlong.csv",
+        csv_path: str = "Data/Fire_Department_and_Emergency_Medical_Services_Dispatched_Calls_for_Service_20251208_with_index.csv",
         time_col: str = "Received DtTm",
         lat_col: Optional[str] = None,
         lng_col: Optional[str] = None,
@@ -247,59 +247,12 @@ class Controller:
             else:
                 grid_mean_wait[g_idx] = 0.0
             
-            '''for g_idx in hc_grids:
-
-            hs_in_grid = [h for h in self.env.hospitals.values()
-                          if h.gridIndex == g_idx]
-            if not hs_in_grid:
-                state_vec.append(0.0)
-                continue'''
-            
             mean_wait = grid_mean_wait[g_idx]
             state_vec.append(mean_wait)
         
         #print("shape of vector",len(grid_ids))
         return state_vec, grid_ids
 
-    '''def build_state_nav(self, ev) -> list[float]:
-        gi = ev.gridIndex
-        h_list = self.env.hospitals
-        vec_n: list[float] = []
-        for h in h_list.values():
-            if h.gridIndex == gi:
-                eta = 0.0
-            else:
-                eta = h.estimate_eta_minutes(ev.location[0], ev.location[1])
-            wait = float(getattr(h, "waitTime", 0.0))
-            wg_h = eta + wait
-            vec_n.append(wg_h)
-        return vec_n
-
-    def build_state_nav1(self, ev):
-
-        gi = ev.gridIndex
-        hids = sorted(self.env.hospitals.keys())  # FIXED ORDER
-        wgs = []
-        for hid in hids:
-            h = self.env.hospitals[hid]
-            if h.gridIndex == gi:
-                eta = 0.0
-            else:
-                eta = h.estimate_eta_minutes(ev.location[0], ev.location[1])
-            wait = float(getattr(h, "waitTime", 0.0))
-            wg = eta + wait
-            wgs.append(wg)
-
-        # NORMALIZE
-        #max_wg = max(wgs) if wgs else 1.0
-        #vec_n = [wg / max_wg for wg in wgs]
-
-            return wgs'''
-
-
-
-      
-   
 
     #========================= ACTION =================================#
 
@@ -337,36 +290,6 @@ class Controller:
             nb_idx = neighbours[dir_index]
             return nb_idx if nb_idx != -1 else gi
 
-    '''def _select_nav_action(self, state_vec) -> int:
-        """
-        Epsilon greedy over all hospitals.
-
-        Returns:
-            hospital id (not slot)
-        """
-        n_actions = len(state_vec)
-        hids = sorted(self.env.hospitals.keys()) 
-
-        if n_actions == 0:
-            return -1
-
-        if getattr(self, "test_mode", False):
-            hid = random.choice(hids)
-            hid = max(0, min(hid, n_actions - 1))
-            return hid
-
-        if self.rng.random() < self.epsilon:
-            hid = random.choice(hids)
-            hid = max(0, min(hid, n_actions - 1))
-            return hid
-
-        s = torch.tensor(state_vec, dtype=torch.float32, device=self.device).unsqueeze(0)
-        s = s.flatten().unsqueeze(0)
-        q = self.dqn_navigation_main(s).detach().cpu().numpy().ravel()
-        
-        hid = int(np.argmax(q))
-        hid = max(0, min(hid, n_actions - 1))
-        return hid'''
     
     def _select_nav_action(self, state_vec: list[float]) -> int:
 
@@ -627,10 +550,7 @@ class Controller:
             self._spawn_success +=1
 
     def _tick(self, t: int) -> None:
-        #print("called tick")
-        
-        #for t in range(0,t+1):
-        # 1) spawn incidents
+
         self._spawn_incidents_for_tick(t)
         #print("spawned inc",self._spawned_incidents)
         self.env.tick_hospital_waits()
@@ -638,11 +558,7 @@ class Controller:
         for g in self.env.grids.values():
             g.imbalance = g.calculate_imbalance(self.env.evs, self.env.incidents)
 
-        # 2) build states and actions for IDLE EVs
-        
-            
-
-        
+        # 2) build states and actions for IDLE EV
        
         try:
             self._last_dispatches = dispatches
@@ -1373,4 +1289,6 @@ class Controller:
         #print("episodic idle time",stats["average episodic idle times\n"])
         return stats
             
+
             
+
