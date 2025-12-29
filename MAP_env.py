@@ -71,16 +71,38 @@ class MAP:
     # ========== GRID GEOMETRY & TOPOLOGY ==========
     
     def build_grids(self, lat_edges, lng_edges) -> None:
-        """Build grid cells and establish 8-connected neighbor relationships."""
         n_rows = len(lat_edges) - 1
         n_cols = len(lng_edges) - 1
+        for r in range(n_rows):
+            for c in range(n_cols):
+                idx = r*n_cols+c
+                g = Grid(index=idx)
+                # compute grid center (lat, lng)
+                lat_c = (lat_edges[r] + lat_edges[r + 1]) / 2.0
+                lng_c = (lng_edges[c] + lng_edges[c + 1]) / 2.0
+                g.center1d = (lat_c, lng_c)
+
+                self.grids[idx] = g
+        ''' 
+        for r in range(n_rows):
+            for c in range(n_cols):
+                idx = r * n_cols + c
+                lat = (lat_edges[r] + lat_edges[r + 1]) / 2.0
+                lng = (lng_edges[c] + lng_edges[c + 1]) / 2.0
+
+                self.grids[idx] = Grid(
+                    index=idx,
+                    center1d=(lat, lng)
+                )
 
         # Create all grid cells
         for r in range(n_rows):
             for c in range(n_cols):
                 idx = r * n_cols + c
-                self.grids[idx] = Grid(index=idx)
-
+                grid = Grid(index=idx)
+                grid.center1d = self.grid_center(idx)
+                self.grids[idx] = Grid(index=idx,loc = self.grid_center(idx))
+        '''
         # Connect 8-neighbors
         for r in range(n_rows):
             for c in range(n_cols):
@@ -94,6 +116,8 @@ class MAP:
                         if 0 <= nr < n_rows and 0 <= nc < n_cols:
                             nbs.append(nr * n_cols + nc)
                 self.grids[idx].neighbours = nbs
+
+
 
     def index_to_rc(self, idx: int) -> Tuple[int, int]:
         """Convert 1D grid index to (row, col) coordinates."""
@@ -338,8 +362,7 @@ class MAP:
         return self.dispatcher.dispatch_gridwise(
             self.grids,
             self.evs,
-            self.incidents,
-            beta=beta,
+            self.incidents
         )
 
     def calculate_eta_plus_wait(self, ev, hospital: Hospital) -> float:

@@ -12,8 +12,8 @@ from Entities.ev import EV, EvState
 class Grid:
     index: int
     loc: Optional[LatLng] = None   
-    center1d: float | None = None     # (lat_center, lng_center)
-
+    #center1d: float | None = None     # (lat_center, lng_center)
+    center1d: Optional[Tuple[float, float]] = None
     incidents: List[int] = field(default_factory=list)  # incident ids
     #evs: List[int] = field(default_factory=list)        # ev ids
     evs: List[int] = field(default_factory=list)    

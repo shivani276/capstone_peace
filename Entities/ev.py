@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Optional, List, Tuple, Dict, Any
 import random
+import numpy as np
 
 LatLng = Tuple[float, float]
 
@@ -68,6 +69,18 @@ class EV:
         
     def add_busy(self, dt: float) -> None:
         self.aggBusyTime += dt
+    def estimate_eta_minutes(self, lat2: float, lng2: float, kmph : float) -> float:
+        """
+        Estimate ETA (in minutes) from this hospital to a point (lat2, lng2)
+        at a constant average speed.
+        """
+        kmph = np.clip(np.random.normal(40.0, 5.0), 20.0, 80.0)
+        #print("speed ",kmph)
+        km = self.haversine_distance_km(lat2, lng2)
+        return 60.0 * km / max(kmph, 1e-6)
+# ARRIVAL RATE AND MU J COMPUTATION FOR REAL TIME AMBULANCE REDEPLOYMENT PAPER
+# helpers.py
+
 
 
     # ========== Repositioning logic ==========
