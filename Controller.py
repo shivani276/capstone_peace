@@ -355,8 +355,62 @@ class Controller:
         if self.rep_step % 500 == 0:
             print(f"[Controller] REPOSITIONING train step={self.rep_step} loss={loss.item():.4f}")
     #===================== NAVIGATION TRAIN ==================#
-    
     def _train_navigation(self, batch_size: int = 64, gamma: float = 0.99):
+        if len(self.buffer_navigation) < batch_size:
+            return
+
+        # ---- Sample batch ----
+        s, a, r, s2, done = self.buffer_navigation.sample(
+            batch_size,
+            device=self.device
+        )
+
+        # ---- Sanity checks (fail fast) ----
+        assert self.dqn_navigation_main is not None
+        assert self.dqn_navigation_target is not None
+        assert self.opt_navigation is not None
+
+        # ---- Q(s,a) from MAIN network ----
+        q_sa = (
+            self.dqn_navigation_main(s)
+            .gather(1, a.unsqueeze(1))
+            .squeeze(1)
+        )
+
+        # ---- TD target from TARGET network ----
+        with torch.no_grad():
+            q_next = self.dqn_navigation_target(s2).max(dim=1)[0]
+            q_next[done == 1.0] = 0.0     # hard terminal masking
+            target = r + gamma * q_next
+
+        # ---- Loss & optimization ----
+        loss = F.smooth_l1_loss(q_sa, target)
+
+        self.opt_navigation.zero_grad()
+        loss.backward()
+        self.opt_navigation.step()
+
+        # ---- Bookkeeping ----
+        self.ep_nav_losses.append(loss.item())
+        self.nav_step += 1
+
+        # ---- Soft target update ----
+        if self.nav_step % self.nav_target_update == 0:
+            with torch.no_grad():
+                for t_param, o_param in zip(
+                    self.dqn_navigation_target.parameters(),
+                    self.dqn_navigation_main.parameters()
+                ):
+                    t_param.data.mul_(1.0 - self.nav_tau).add_(self.nav_tau * o_param.data)
+
+        if self.nav_step % 500 == 0:
+            print(
+                f"[Controller] NAV train step={self.nav_step} "
+                f"loss={loss.item():.4f}"
+            )
+
+    
+    '''def _train_navigation(self, batch_size: int = 64, gamma: float = 0.99):
         if len(self.buffer_navigation) < batch_size:
             return
         
@@ -378,7 +432,7 @@ class Controller:
         if self.dqn_navigation_main is not None:
             q = self.dqn_navigation_main(s).gather(1, a.view(-1, 1)).squeeze(1)
 
-        loss = torch.nn.functional.smooth_l1_loss(q, y)
+        loss = F.smooth_l1_loss(q, y)
         if self.opt_navigation is not None:
             self.opt_navigation.zero_grad()
             loss.backward()
@@ -397,6 +451,7 @@ class Controller:
 
         if self.nav_step % 500 == 0:
             print(f"[Controller] NAV train step={self.nav_step} loss={loss.item():.4f}")
+            '''
 
     # ---------- episode reset ----------
     def _reset_episode(self) -> None:
@@ -655,7 +710,7 @@ class Controller:
             sr_t = torch.as_tensor(sr_t, dtype=torch.float32, device=self.device).view(-1)
             st_2_r = torch.as_tensor(st_2_r, dtype=torch.float32, device=self.device).view(-1) 
             self.buffer_reposition.push(sr_t, ar_t, rr_t, st_2_r, doner_t)
-            #print("Repositioning transition pushed:",  ev.id, "state",sr_t,"next state",st_2_r,"\n")
+            #print("Repositioning transition pushed:",  ev.id, "state",sr_t,"next state",st_2_r,"done",doner_t,"\n")
         #elif ev.state == EvState.BUSY and ev.status == "Navigation" :
         for emv,s,a in busy_transitions:
             if emv.state == EvState.BUSY: #was busy is busy
@@ -681,15 +736,16 @@ class Controller:
             sn_t = torch.as_tensor(sn_t, dtype=torch.float32, device=self.device).view(-1)
             st_2_n = torch.as_tensor(st_2_n, dtype=torch.float32, device=self.device).view(-1)
             self.buffer_navigation.push(sn_t, an_t, rn_t, st_2_n, done_t)
-            #print("Navigation transition pushed:",  ev.id, "state",sn_t,"next state",st_2_n,"\n")
-            if len(self.buffer_reposition) >= 1000:
+            #print("Navigation transition pushed:",  ev.id, "state",sn_t,"next state",st_2_n,"done",done_t,"\n")
+            if len(self.buffer_reposition) >= 100:
                 Sr, Ar, Rr, S2r, Dr = self.buffer_reposition.sample(64, self.device)
+                #print("sampled value from rep buffer",Sr,Ar,Rr,S2r,Dr,"\n")
             
         
             #print(" tensor pushed for nav",st_2_n,)
-            if len(self.buffer_navigation) >= 1000:
+            if len(self.buffer_navigation) >= 100:
                 Sn, An, Rn, S2n, Dn = self.buffer_navigation.sample(64, self.device)
-    
+                #print("sampled value from nav buffer",Sn,An,Rn,S2n,Dn,"\n")
                 
                 
         # measure how much idle time / energy was added this tick
