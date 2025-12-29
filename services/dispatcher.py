@@ -89,8 +89,9 @@ class DispatcherService:
                     
                     # Record dispatch with priority-based reward (not wait time dependent)
                     best_ev.assign_incident(inc_id)
-                    best_ev.sarns["reward"] = dispatch_reward
+                    #best_ev.sarns["reward"] = dispatch_reward
                     best_ev.state = EvState.BUSY
+                    #best_ev.status = "navigation"
                     
                     best_ev.assignedPatientPriority = inc.priority
                     if ev.gridIndex != inc.gridIndex:
