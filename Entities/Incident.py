@@ -36,6 +36,9 @@ class Incident:
     priority: int = 1
     status: IncidentStatus = IncidentStatus.UNASSIGNED
     waitTime: float = 0.0
+    responseTimestamp: Optional[datetime] = None
+    hospitalTimestamp: Optional[datetime] = None
+    responseToHospitalMinutes: Optional[float] = None
     serviceTime: float = 0.0
     remainingWaitTime: Optional[float] = None
     assignedEvId: Optional[int] = None
