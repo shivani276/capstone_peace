@@ -533,22 +533,13 @@ class Controller:
     # ---------- per-tick ----------
     def _spawn_incidents_for_tick(self, t: int):
         todays_at_tick = self._schedule.get(t, []) if self._schedule else []
-        for (inc_id,ts,lat, lng, pri,rsp_ts, hosp_ts) in todays_at_tick:
+        for (inc_id,ts,lat, lng, pri) in todays_at_tick:
             self._spawn_attempts +=1
             gi = point_to_grid_index(lat, lng, self.env.lat_edges, self.env.lng_edges)
             if gi is None or gi < 0:
                 continue
             ts_py = ts.to_pydatetime() if hasattr(ts, "to_pydatetime") else ts
             inc = self.env.create_incident(incident_id = inc_id,grid_index=gi, location=(lat, lng),timestamp=ts_py,priority=pri)
-            inc.responseTimestamp = rsp_ts
-            inc.hospitalTimestamp = hosp_ts
-            if rsp_ts is not None and hosp_ts is not None:
-                try:
-                    inc.responseToHospitalMinutes = max(0.0, (hosp_ts - rsp_ts).total_seconds() / 60.0)
-                except Exception:
-                    inc.responseToHospitalMinutes = None
-            else:
-                inc.responseToHospitalMinutes = None
             try:
                 self._spawned_incidents[inc.id] = inc
                 #print("incident id",inc)
@@ -595,9 +586,6 @@ class Controller:
         self.env.accept_reposition_offers()  #next grid changes
         
         # --- FIX: REMOVED DEBUG_DISPATCH ARGUMENT ---
-
-        #===========Calculate grid mean wait times ============================
-
         dispatches = self.env.dispatch_gridwise(beta=0.5)
         busy_transitions = []
         for ev in self.env.evs.values():    
@@ -616,31 +604,8 @@ class Controller:
                 #print("navigation actions", a_gi)
                 ev.sarns["action"] = slo
                 an_t  = ev.sarns.get("action")
-                waits = []
-                grid_mean_wait = {}
-                g_idx = grid_ids[slo]
-                for h in self.env.hospitals.values():
-                    if h.gridIndex != g_idx:
-                        continue
-                    w_valid = self.env.calculate_eta_plus_wait(ev, h)
-                    
-                    if w_valid is not None:
-                        w = max(0,w_valid)
-                        waits.append(float(w))
-                if waits:
-                    grid_mean_wait[g_idx] = sum(waits) / len(waits)
-                else:
-                    grid_mean_wait[g_idx] = 0.0
-                
-                mean_wait = grid_mean_wait[g_idx]
                 #(ev.navWaitTime)
-                if ev.assignedPatientId is not None:
-                    inc = self.env.incidents.get(ev.assignedPatientId)
-                    if inc is not None and inc.responseToHospitalMinutes is not None:
-                        # R_busy is the total wait (response + hospital) time
-                        R_busy = inc.waitTime + mean_wait
-                        ev.sarns["reward"] = utility_navigation(R_busy, H_max=inc.responseToHospitalMinutes)
-                print("reward for navigation", ev.sarns["reward"])        
+                ev.sarns["reward"] = utility_navigation(ev.navWaitTime)
                 rn_t  = ev.sarns.get("reward")
                 busy_transitions.append((ev,state_vec,slo))
                 dest_grid = grid_ids[slo]
@@ -744,7 +709,7 @@ class Controller:
                 sn_t  = emv.sarns.get("state") #checked size = 4
                 an_t  = emv.sarns.get("action")
                 rn_t  = emv.sarns.get("reward")
-                wits, grids_ids = self.build_state_nav1(ev) #checked size = 4
+                wits, grids_ids = self.build_state_nav1(emv) #checked size = 4
                 st_2_n = wits
                 
                     #size =4
