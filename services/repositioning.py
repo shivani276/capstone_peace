@@ -62,7 +62,7 @@ class RepositioningService:
                 v_obj.status = "Repositioning"
                 #print("set the status to rep vid", v_obj.id,"status",v_obj.status)
                 v_obj.sarns["reward"] = u_val
-                #print("reward griven after acceptance", v_obj.sarns["reward"])
+                #print("reward griven after acceptance", v_obj.sarns["reward"],"ev",v_obj.id)
                 v_obj.nextGrid = g_idx
                 accepted += 1
                 #g.add_ev(ev_id)
