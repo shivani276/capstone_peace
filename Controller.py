@@ -271,7 +271,8 @@ class Controller:
         valid_mask = [1]  # slot 0 (stay)
         for nb_idx in neighbours:
             valid_mask.append(1 if nb_idx != -1 else 0)
-
+        self.epsilon = self.epsilon_scheduler.value(self.global_step)
+        #print("epsilon in rep",self.epsilon)
         if self.rng.random() < self.epsilon:
             valid_slots = [i for i, m in enumerate(valid_mask) if m == 1]
             slot = self.rng.choice(valid_slots) if valid_slots else 0
@@ -282,6 +283,7 @@ class Controller:
                 if m == 0:
                     q[i] = -1e9
             slot = int(np.argmax(q))
+        #self.global_step += 1
 
         if slot == 0:
             return gi  # stay
@@ -299,7 +301,11 @@ class Controller:
             return -1  # no hospital grids to choose from
 
         # 1) Exploration: random slot
+        self.epsilon = self.epsilon_scheduler.value(self.global_step)
+        
+        #print("epsilon in nav",self.epsilon)
         if self.rng.random() < self.epsilon:
+            
             return self.rng.randint(0, n_actions - 1)
 
         # 2) Exploitation: DQN greedy
@@ -310,18 +316,92 @@ class Controller:
         # q[i] is the Q-value for choosing slot i (i.e. grid_ids[i])
 
         slot = int(np.argmax(q))
+        #self.global_step += 1
         # safety clamp, just in case
         if slot < 0:
             slot = 0
         elif slot >= n_actions:
             slot = n_actions - 1
+        
 
         return slot
 
 
     #================== REPOSITION TRAIN ======================#
+    def _train_reposition(
+    self,
+    batch_size: int = 64,
+    gamma: float = 0.99,):
+        self.repo_tau = 0.995
+        
 
-    def _train_reposition(self, batch_size: int = 64, gamma: float = 0.99) -> None:
+        self.repo_target_hard_update = 2000
+        
+        if len(self.buffer_reposition) < batch_size:
+            return
+
+        # ---- Sample batch ----
+        s, a, r, s2, done = self.buffer_reposition.sample(
+            batch_size,
+            device=self.device
+        )
+
+        # ---- Sanity checks ----
+        assert self.dqn_reposition_main is not None
+        assert self.dqn_reposition_target is not None
+        assert self.opt_reposition is not None
+
+        # ---- Q(s,a) from MAIN ----
+        q_sa = (
+            self.dqn_reposition_main(s)
+            .gather(1, a.unsqueeze(1))
+            .squeeze(1)
+        )
+
+        # ---- TD target from TARGET ----
+        with torch.no_grad():
+            q_next = self.dqn_reposition_target(s2).max(dim=1)[0]
+            q_next[done == 1.0] = 0.0
+            target = r + gamma * q_next
+
+        # ---- Loss ----
+        #loss = F.mse_loss(q_sa, target)
+        loss = F.smooth_l1_loss(q_sa, target)  # Huber (optional)
+
+        # ---- Main network update (θ_m) ----
+        self.opt_reposition.zero_grad()
+        loss.backward()
+        self.opt_reposition.step()
+
+        # ---- Bookkeeping ----
+        self.ep_repo_losses.append(loss.item())
+        self.rep_step += 1
+
+        # ---- HARD target update ----
+        if self.rep_step % self.repo_target_hard_update == 0:
+            self.dqn_reposition_target.load_state_dict(
+                self.dqn_reposition_main.state_dict()
+            )
+
+        # ---- SOFT (Polyak) target update ----
+        tau = self.repo_tau  # e.g. 0.995
+        with torch.no_grad():
+            for p_t, p in zip(
+                self.dqn_reposition_target.parameters(),
+                self.dqn_reposition_main.parameters()
+            ):
+                # θ̂ ← τ θ̂ + (1 − τ) θ
+                p_t.data.mul_(tau)
+                p_t.data.add_((1.0 - tau) * p.data)
+
+        if self.rep_step % 500 == 0:
+            print(
+                f"[Controller] REPOSITION train step={self.rep_step} "
+                f"loss={loss.item():.4f}"
+            )
+
+
+    '''def _train_reposition(self, batch_size: int = 64, gamma: float = 0.99) -> None:
         if len(self.buffer_reposition) < batch_size:
             return
 
@@ -353,9 +433,10 @@ class Controller:
                                         self.dqn_reposition_main.parameters()):
                 t_param.data.mul_(1.0 - tau).add_(tau * o_param.data)
         if self.rep_step % 500 == 0:
-            print(f"[Controller] REPOSITIONING train step={self.rep_step} loss={loss.item():.4f}")
+            print(f"[Controller] REPOSITIONING train step={self.rep_step} loss={loss.item():.4f}")'''
     #===================== NAVIGATION TRAIN ==================#
-    def _train_navigation(self, batch_size: int = 64, gamma: float = 0.99):
+
+    '''def _train_navigation(self, batch_size: int = 64, gamma: float = 0.99):
         if len(self.buffer_navigation) < batch_size:
             return
 
@@ -407,10 +488,11 @@ class Controller:
             print(
                 f"[Controller] NAV train step={self.nav_step} "
                 f"loss={loss.item():.4f}"
-            )
+            )'''
 
     
-    '''def _train_navigation(self, batch_size: int = 64, gamma: float = 0.99):
+    def _train_navigation(self, batch_size: int = 64, gamma: float = 0.99):
+        
         if len(self.buffer_navigation) < batch_size:
             return
         
@@ -451,7 +533,75 @@ class Controller:
 
         if self.nav_step % 500 == 0:
             print(f"[Controller] NAV train step={self.nav_step} loss={loss.item():.4f}")
-            '''
+            
+    '''def _train_navigation(
+        self,
+        batch_size: int = 64,
+        gamma: float = 0.99,):
+        self.nav_tau  = 0.995
+        self.nav_target_hard_update  = 2000
+        if len(self.buffer_navigation) < batch_size:
+            return
+
+        # ---- Sample batch ----
+        s, a, r, s2, done = self.buffer_navigation.sample(
+            batch_size,
+            device=self.device
+        )
+
+        # ---- Sanity checks ----
+        assert self.dqn_navigation_main is not None
+        assert self.dqn_navigation_target is not None
+        assert self.opt_navigation is not None
+
+        # ---- Q(s,a) from MAIN ----
+        q_sa = (
+            self.dqn_navigation_main(s)
+            .gather(1, a.unsqueeze(1))
+            .squeeze(1)
+        )
+
+        # ---- TD target from TARGET ----
+        with torch.no_grad():
+            q_next = self.dqn_navigation_target(s2).max(dim=1)[0]
+            q_next[done == 1.0] = 0.0
+            target = r + gamma * q_next
+
+        # ---- Loss ----
+        loss = F.mse_loss(q_sa, target)
+        # loss = F.smooth_l1_loss(q_sa, target)  # Huber (optional)
+
+        # ---- Main network update (θ_m) ----
+        self.opt_navigation.zero_grad()
+        loss.backward()
+        self.opt_navigation.step()
+
+        # ---- Bookkeeping ----
+        self.ep_nav_losses.append(loss.item())
+        self.nav_step += 1
+
+        # ---- HARD target update ----
+        if self.nav_step % self.nav_target_hard_update == 0:
+            self.dqn_navigation_target.load_state_dict(
+                self.dqn_navigation_main.state_dict()
+            )
+
+        # ---- SOFT (Polyak) target update ----
+        tau = self.nav_tau  # e.g. 0.995
+        with torch.no_grad():
+            for p_t, p in zip(
+                self.dqn_navigation_target.parameters(),
+                self.dqn_navigation_main.parameters()
+            ):
+                # θ̂ ← τ θ̂ + (1 − τ) θ
+                p_t.data.mul_(tau)
+                p_t.data.add_((1.0 - tau) * p.data)
+
+        if self.nav_step % 500 == 0:
+            print(
+                f"[Controller] NAV train step={self.nav_step} "
+                f"loss={loss.item():.4f}"
+            )'''
 
     # ---------- episode reset ----------
     def _reset_episode(self) -> None:
@@ -533,13 +683,22 @@ class Controller:
     # ---------- per-tick ----------
     def _spawn_incidents_for_tick(self, t: int):
         todays_at_tick = self._schedule.get(t, []) if self._schedule else []
-        for (inc_id,ts,lat, lng, pri) in todays_at_tick:
+        for (inc_id,ts,lat, lng, pri,rsp_ts, hosp_ts) in todays_at_tick:
             self._spawn_attempts +=1
             gi = point_to_grid_index(lat, lng, self.env.lat_edges, self.env.lng_edges)
             if gi is None or gi < 0:
                 continue
             ts_py = ts.to_pydatetime() if hasattr(ts, "to_pydatetime") else ts
             inc = self.env.create_incident(incident_id = inc_id,grid_index=gi, location=(lat, lng),timestamp=ts_py,priority=pri)
+            inc.responseTimestamp = rsp_ts
+            inc.hospitalTimestamp = hosp_ts
+            if rsp_ts is not None and hosp_ts is not None:
+                try:
+                    inc.responseToHospitalMinutes = max(0.0, (hosp_ts - rsp_ts).total_seconds() / 60.0)
+                except Exception:
+                    inc.responseToHospitalMinutes = None
+            else:
+                inc.responseToHospitalMinutes = None
             try:
                 self._spawned_incidents[inc.id] = inc
                 #print("incident id",inc)
@@ -578,12 +737,15 @@ class Controller:
                 sr_t = torch.as_tensor(state_vec, dtype=torch.float32, device=self.device).view(-1)
                 ev.sarns["state"] = state_vec
                 a_gi = self._select_action(state_vec, ev.gridIndex)
+                self.global_step += 1
                 ev.sarns["action"] = a_gi
                 ev.nextGrid = ev.gridIndex #to handle none type errror
                 idle_transitions.append((ev,state_vec,a_gi))
                 
         # 3) Accept offers
         self.env.accept_reposition_offers()  #next grid changes
+        #for ev in self.env.evs.values():
+            #print("ev",ev.id,"reward",ev.sarns["reward"],"status",ev.status)
         
         # --- FIX: REMOVED DEBUG_DISPATCH ARGUMENT ---
         dispatches = self.env.dispatch_gridwise(beta=0.5)
@@ -601,12 +763,14 @@ class Controller:
                 ev.sarns["state"] = state_vec
                 #print("lenght of getting state",len(ev.sarns["state"]))
                 slo = self._select_nav_action(state_vec)
+                self.global_step += 1
                 #print("navigation actions", a_gi)
                 ev.sarns["action"] = slo
                 an_t  = ev.sarns.get("action")
                 #(ev.navWaitTime)
                 ev.sarns["reward"] = utility_navigation(ev.navWaitTime)
                 rn_t  = ev.sarns.get("reward")
+                #print("ev",ev.id,"reward",rn_t,"status",ev.status)
                 busy_transitions.append((ev,state_vec,slo))
                 dest_grid = grid_ids[slo]
                 ev.navdstGrid = dest_grid
