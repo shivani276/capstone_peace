@@ -12,7 +12,7 @@ import re
 W_MIN, W_MAX = 0.0, 48.99
 E_MIN, E_MAX = 0.0, 25.2126
 P_MIN, P_MAX = 0.0, 30.98
-H_MIN, H_MAX = 0.74, 34.87
+#H_MIN, H_MAX = 0.74, 34.87
 
 # -------------------------------------------------------------
 # BASIC LOAD/SAVE
@@ -111,8 +111,8 @@ def build_daily_incident_schedule(
     day: pd.Timestamp,
     id_col: str = "index",
     time_col: str = "Received DtTm",
-    response_col: str = "Response DtTm",
-    hospital_col: str = "Hospital DtTm",
+    response_col: str | None = "Response DtTm",
+    hospital_col: str | None = "Hospital DtTm",
     lat_col: str | None = "Latitude",
     lng_col: str | None = "Longitude",
     wkt_col: str | None = None,
@@ -125,15 +125,22 @@ def build_daily_incident_schedule(
     """
     tmp = df.copy()
     tmp[time_col] = pd.to_datetime(tmp[time_col],format="%Y %b %d %I:%M:%S %p", errors="coerce")
-    if response_col in tmp.columns:
-        tmp[response_col] = pd.to_datetime(tmp[response_col], format="%Y %b %d %I:%M:%S %p", errors="coerce")
+    
+    if response_col:
+        if response_col in tmp.columns:
+            tmp[response_col] = pd.to_datetime(tmp[response_col], format="%Y %b %d %I:%M:%S %p", errors="coerce")
+        else:
+            tmp[response_col] = pd.NaT
     else:
-        tmp[response_col] = pd.NaT
+        tmp[response_col or "Response DtTm"] = pd.NaT
 
-    if hospital_col in tmp.columns:
-        tmp[hospital_col] = pd.to_datetime(tmp[hospital_col], format="%Y %b %d %I:%M:%S %p", errors="coerce")
+    if hospital_col:
+        if hospital_col in tmp.columns:
+            tmp[hospital_col] = pd.to_datetime(tmp[hospital_col], format="%Y %b %d %I:%M:%S %p", errors="coerce")
+        else:
+            tmp[hospital_col] = pd.NaT
     else:
-        tmp[hospital_col] = pd.NaT
+        tmp[hospital_col or "Hospital DtTm"] = pd.NaT
 
     day_start = pd.Timestamp(day.normalize())
     day_end = day_start + pd.Timedelta(days=1)
@@ -201,7 +208,7 @@ def _safe_norm(x: float, xmin: float, xmax: float, invert: bool = False) -> floa
     return 1.0 - n if invert else n
 '''
 #Navigation utility
-def utility_navigation(R_busy: float, H_min: float = 0.0, H_max: float = H_MAX) -> float:
+def utility_navigation(R_busy: float, H_min: float = 0.0, H_max: float = 50.0) -> float:
   if R_busy < H_min:
     U_N = 1
   elif H_min < R_busy < H_max:
