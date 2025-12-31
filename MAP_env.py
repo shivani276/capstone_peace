@@ -18,12 +18,12 @@ import math
 import numpy as np
 from utils.Helpers import (
     point_to_grid_index,
-    load_grid_config_2d, P_MAX,H_MIN, H_MAX
+    load_grid_config_2d, P_MAX
 )
 
 from Entities.GRID import Grid
 from Entities.ev import EV, EvState
-from Entities.Incident import Incident, Priority, IncidentStatus
+from Entities.Incident import Incident, IncidentStatus
 from Entities.Hospitals import Hospital
 
 # Import services
@@ -228,7 +228,7 @@ class MAP:
            # hc.waitTime = math.exp(13)
             number += 1
             rng = np.random.default_rng()
-            lam = H_MIN + H_MAX / 2.0 # mean
+            lam = 8.9 + 10.0 / 2.0 # mean
             hc.waitTime = min(40, rng.exponential(13)) #poisson dist with mean
             #print("hc waitime set",hc.waitTime)
             #print(f"[MAP] Hospital waits initialised in [{hc.id}, {hc.waitTime}] minutes.")
