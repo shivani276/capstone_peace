@@ -15,14 +15,7 @@ class IncidentStatus(Enum):
     RESOLVED = auto()
     CANCELLED = auto()
 
-
-class Priority(Enum):
-    LOW = 1
-    MED = 2
-    HIGH = 3
-    CRIT = 4
-
-
+    
 LatLng = Tuple[float, float]
 
 
@@ -111,7 +104,7 @@ class Incident:
         Estimate ETA (in minutes) from this hospital to a point (lat2, lng2)
         at a constant average speed.
         """
-        kmph = np.clip(np.random.normal(40.0, 5.0), 20.0, 80.0)
+        kmph = 40 #np.clip(np.random.normal(40.0, 5.0), 20.0, 80.0)
         #print("speed ",kmph)
         km = self.haversine_distance_km(lat2, lng2)
         return 60.0 * km / max(kmph, 1e-6)

@@ -9,12 +9,12 @@ import numpy as np
 
 from MAP_env import MAP
 from Entities.ev import EvState
-from Entities.Incident import Priority, IncidentStatus
+from Entities.Incident import IncidentStatus
 from utils.Epsilon import EpsilonScheduler, hard_update, soft_update
 from utils.Helpers import (
     build_daily_incident_schedule,
     point_to_grid_index,
-    W_MIN, W_MAX, E_MIN, E_MAX,H_MIN, H_MAX,
+    W_MIN, W_MAX, E_MIN, E_MAX,
     utility_navigation, load_calls
 )
 
@@ -134,7 +134,7 @@ class Controller:
 
         self.max_idle_minutes = W_MAX
         self.max_idle_energy = E_MAX
-        self.max_wait_time_HC = H_MAX
+        #self.max_wait_time_HC = H_MAX
 
         self._spawn_attempts = 0
         self._spawn_success = 0
@@ -380,8 +380,8 @@ class Controller:
         # ---- TD target from TARGET network ----
         with torch.no_grad():
             q_next = self.dqn_navigation_target(s2).max(dim=1)[0]
-            q_next[done == 1.0] = 0.0     # hard terminal masking
-            target = r + gamma * q_next
+            done = done.to(torch.bool)
+            target = r + gamma * (~done).float() * q_next
 
         # ---- Loss & optimization ----
         loss = F.smooth_l1_loss(q_sa, target)
@@ -507,7 +507,7 @@ class Controller:
                 ev.status = "Navigation"
                 ev.navdstGrid = random.choice((0,3,4,5))
                 ev.assignedPatientPriority = random.choice((1,2,3))
-                ev.navEtaMinutes = self.rng.uniform(0.0, self.max_wait_time_HC)
+                ev.navEtaMinutes = self.rng.uniform(10.0, 30.0)
                 ev.navTargetHospitalId = random.choice((1,78))
                
                 ev.aggIdleTime = 0.0
@@ -637,10 +637,16 @@ class Controller:
                 if ev.assignedPatientId is not None:
                     inc = self.env.incidents.get(ev.assignedPatientId)
                     if inc is not None and inc.responseToHospitalMinutes is not None:
+                        if ev.assignedPatientPriority == 2:
+                            H_MIN = 20.0
+                        elif ev.assignedPatientPriority == 3:
+                            H_MIN = 30.0
+                        elif ev.assignedPatientPriority == 1:
+                            H_MIN = 10.0
                         # R_busy is the total wait (response + hospital) time
                         R_busy = inc.waitTime + mean_wait
-                        ev.sarns["reward"] = utility_navigation(R_busy, H_max=inc.responseToHospitalMinutes)
-                print("reward for navigation", ev.sarns["reward"])        
+                        ev.sarns["reward"] = utility_navigation(R_busy, H_min= H_MIN, H_max=inc.responseToHospitalMinutes)
+                #print("reward for navigation", ev.sarns["reward"])        
                 rn_t  = ev.sarns.get("reward")
                 busy_transitions.append((ev,state_vec,slo))
                 dest_grid = grid_ids[slo]
@@ -715,35 +721,35 @@ class Controller:
         self.env.update_after_tick(8)
         #for ev in self.env.evs.values():
             #if ev.state == EvState.IDLE:
-        for emv,s,a in idle_transitions:
-            if emv.state == EvState.IDLE:#no change is status
+        for ev,s,a in idle_transitions:
+            if ev.state == EvState.IDLE :#no change is status
                 doner_t = False
                 
-                sr_t = emv.sarns.get("state")
+                sr_t = ev.sarns.get("state")
                 #sr_t  = ev.sarns.get("state") 
-                ar_t  = emv.sarns.get("action")
-                rr_t  = emv.sarns.get("reward")
-                st_2_r = self._build_state(emv) #build the next state
+                ar_t  = ev.sarns.get("action")
+                rr_t  = ev.sarns.get("reward")
+                st_2_r = self._build_state(ev) #build the next state
                 #doner_t = bool(1)
             else: #idle vehicle became busy during update
                 doner_t = True
                 #print("ev",emv.id,"became busy from idle")
-                sr_t = emv.sarns.get("state")
+                sr_t = ev.sarns.get("state")
                 #sr_t  = ev.sarns.get("state") 
-                ar_t  = emv.sarns.get("action")
-                rr_t  = emv.sarns.get("reward")
+                ar_t  = ev.sarns.get("action")
+                rr_t  = ev.sarns.get("reward")
                 st_2_r = np.zeros(len(sr_t), dtype=np.float32)
             sr_t = torch.as_tensor(sr_t, dtype=torch.float32, device=self.device).view(-1)
             st_2_r = torch.as_tensor(st_2_r, dtype=torch.float32, device=self.device).view(-1) 
             self.buffer_reposition.push(sr_t, ar_t, rr_t, st_2_r, doner_t)
             #print("Repositioning transition pushed:",  ev.id, "state",sr_t,"next state",st_2_r,"done",doner_t,"\n")
         #elif ev.state == EvState.BUSY and ev.status == "Navigation" :
-        for emv,s,a in busy_transitions:
-            if emv.state == EvState.BUSY: #was busy is busy
+        for ev,s,a in busy_transitions:
+            if ev.state == EvState.BUSY and ev.status == "Navigation": #was busy is busy
                 done_t = False
-                sn_t  = emv.sarns.get("state") #checked size = 4
-                an_t  = emv.sarns.get("action")
-                rn_t  = emv.sarns.get("reward")
+                sn_t  = ev.sarns.get("state") #checked size = 4
+                an_t  = ev.sarns.get("action")
+                rn_t  = ev.sarns.get("reward")
                 wits, grids_ids = self.build_state_nav1(ev) #checked size = 4
                 st_2_n = wits
                 
@@ -752,9 +758,9 @@ class Controller:
             else: #was busy, is idle now
                 done_t = True
                 #print("ev",emv.id,"became idle after",emv.aggBusyTime,"last known location",emv.gridIndex,"dst",emv.navdstGrid)
-                sn_t  = emv.sarns.get("state") #checked size = 4
-                an_t  = emv.sarns.get("action")
-                rn_t  = emv.sarns.get("reward")
+                sn_t  = ev.sarns.get("state") #checked size = 4
+                an_t  = ev.sarns.get("action")
+                rn_t  = ev.sarns.get("reward")
                 wits = np.zeros(len(sn_t),dtype = np.float32)
                 st_2_n = wits
             if sn_t is None or an_t is None or rn_t is None:
