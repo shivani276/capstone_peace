@@ -25,13 +25,13 @@ class ReplayBuffer:
         self.buffer = []
         self.pos = 0    # indexing for circular buffer
 
-    def push(self, s, a, r, s2, done):
+    def push(self, s, a, r, s2, done,valid_mask):
         """Store one transition: (state, action, reward, next_state, done)"""
         
         if len(self.buffer) < self.capacity:
             self.buffer.append(None)  # expand buffer
 
-        self.buffer[self.pos] = (s, a, r, s2, done)
+        self.buffer[self.pos] = (s, a, r, s2, done,valid_mask)
         self.pos = (self.pos + 1) % self.capacity
 
     def sample(self, batch_size, device):
@@ -39,17 +39,19 @@ class ReplayBuffer:
         
         batch = random.sample(self.buffer, batch_size)
 
-        states, actions, rewards, next_states, dones = zip(*batch)
+        states, actions, rewards, next_states, dones,valid_mask = zip(*batch)
         rewards_clean = [0.0 if r is None else float(r) for r in rewards]
         S  = torch.stack(states).to(device)
         A  = torch.tensor(actions, dtype=torch.long, device=device)
         R  = torch.tensor(rewards_clean, dtype=torch.float32, device=device)
         S2 = torch.stack(next_states).to(device)
         D  = torch.tensor(dones, dtype=torch.float32, device=device)
+        #valid_mask = torch.stack(valid_mask,dtype=torch.float32,device=device)
+        valid_mask = torch.stack(valid_mask).to(device)
         #if any(r is None for r in rewards):
             #print("[ReplayBuffer] WARNING: None reward found in batch:", rewards)
 
-        return S, A, R, S2, D
+        return S, A, R, S2, D, valid_mask
 
     def __len__(self):
         return len(self.buffer)
