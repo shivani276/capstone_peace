@@ -40,8 +40,7 @@ class EV:
         #print("asgined patient",self.assignedPatientId,"to ev",self.id)
         #self.state = EvState.BUSY
         self.status = "Dispatching"
-        self.aggIdleEnergy = 0.0
-        self.aggIdleTime = 0.0
+        
         
 
     def release_incident(self) -> None:
@@ -53,6 +52,8 @@ class EV:
         self.navEtaMinutes = 0.0
         self.navdstGrid = None
         self.navWaitTime = 0.0
+        self.aggIdleEnergy = 0.0
+        self.aggIdleTime = 0.0
 
     def move_to(self, grid_index: int, new_loc: LatLng) -> None:
         self.gridIndex = grid_index

@@ -9,12 +9,12 @@ import numpy as np
 import torch.nn.utils as nn_utils
 from MAP_env import MAP
 from Entities.ev import EvState
-from Entities.Incident import Priority, IncidentStatus
+from Entities.Incident import IncidentStatus
 from utils.Epsilon import EpsilonScheduler, hard_update, soft_update
 from utils.Helpers import (
     build_daily_incident_schedule,
     point_to_grid_index,
-    W_MIN, W_MAX, E_MIN, E_MAX,H_MIN, H_MAX,
+    W_MIN, W_MAX, E_MIN, E_MAX,
     utility_navigation, load_calls
 )
 
@@ -135,7 +135,7 @@ class Controller:
 
         self.max_idle_minutes = W_MAX
         self.max_idle_energy = E_MAX
-        self.max_wait_time_HC = H_MAX
+        #self.max_wait_time_HC = H_MAX
 
         self._spawn_attempts = 0
         self._spawn_success = 0
@@ -514,8 +514,8 @@ class Controller:
         # ---- TD target from TARGET network ----
         with torch.no_grad():
             q_next = self.dqn_navigation_target(s2).max(dim=1)[0]
-            q_next[done == 1.0] = 0.0     # hard terminal masking
-            target = r + gamma * q_next
+            done = done.to(torch.bool)
+            target = r + gamma * (~done).float() * q_next
 
         # ---- Loss & optimization ----
         loss = F.smooth_l1_loss(q_sa, target)
@@ -717,7 +717,7 @@ class Controller:
                 ev.status = "Navigation"
                 ev.navdstGrid = random.choice((0,3,4,5))
                 ev.assignedPatientPriority = random.choice((1,2,3))
-                ev.navEtaMinutes = self.rng.uniform(0.0, self.max_wait_time_HC)
+                ev.navEtaMinutes = self.rng.uniform(10.0, 30.0)
                 ev.navTargetHospitalId = random.choice((1,78))
                
                 ev.aggIdleTime = 0.0
@@ -832,8 +832,37 @@ class Controller:
                 #print("navigation actions", a_gi)
                 ev.sarns["action"] = slo
                 an_t  = ev.sarns.get("action")
+                waits = []
+                grid_mean_wait = {}
+                g_idx = grid_ids[slo]
+                for h in self.env.hospitals.values():
+                    if h.gridIndex != g_idx:
+                        continue
+                    w_valid = self.env.calculate_eta_plus_wait(ev, h)
+                    
+                    if w_valid is not None:
+                        w = max(0,w_valid)
+                        waits.append(float(w))
+                if waits:
+                    grid_mean_wait[g_idx] = sum(waits) / len(waits)
+                else:
+                    grid_mean_wait[g_idx] = 0.0
+                
+                mean_wait = grid_mean_wait[g_idx]
                 #(ev.navWaitTime)
-                ev.sarns["reward"] = utility_navigation(ev.navWaitTime)
+                if ev.assignedPatientId is not None:
+                    inc = self.env.incidents.get(ev.assignedPatientId)
+                    if inc is not None and inc.responseToHospitalMinutes is not None:
+                        if ev.assignedPatientPriority == 2:
+                            H_MIN = 20.0
+                        elif ev.assignedPatientPriority == 3:
+                            H_MIN = 30.0
+                        elif ev.assignedPatientPriority == 1:
+                            H_MIN = 10.0
+                        # R_busy is the total wait (response + hospital) time
+                        R_busy = inc.waitTime + mean_wait
+                        ev.sarns["reward"] = utility_navigation(R_busy, H_min= H_MIN, H_max=inc.responseToHospitalMinutes)
+                #print("reward for navigation", ev.sarns["reward"])        
                 rn_t  = ev.sarns.get("reward")
                 #print("ev",ev.id,"reward",rn_t,"status",ev.status)
                 busy_transitions.append((ev,state_vec,slo))
@@ -927,8 +956,8 @@ class Controller:
                 sr_t = emv.sarns.get("state")
                 #print("size of state",len(sr_t))
                 #sr_t  = ev.sarns.get("state") 
-                ar_t  = emv.sarns.get("action")
-                rr_t  = emv.sarns.get("reward")
+                ar_t  = ev.sarns.get("action")
+                rr_t  = ev.sarns.get("reward")
                 st_2_r = np.zeros(len(sr_t), dtype=np.float32)
                 #print("size of s2",len(st_2_r))
             valid_mask_s2 = self.get_valid_action_mask(emv.gridIndex)
