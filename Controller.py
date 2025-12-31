@@ -767,6 +767,23 @@ class Controller:
                 #print("navigation actions", a_gi)
                 ev.sarns["action"] = slo
                 an_t  = ev.sarns.get("action")
+                waits = []
+                grid_mean_wait = {}
+                g_idx = grid_ids[slo]
+                for h in self.env.hospitals.values():
+                    if h.gridIndex != g_idx:
+                        continue
+                    w_valid = self.env.calculate_eta_plus_wait(ev, h)
+                    
+                    if w_valid is not None:
+                        w = max(0,w_valid)
+                        waits.append(float(w))
+                if waits:
+                    grid_mean_wait[g_idx] = sum(waits) / len(waits)
+                else:
+                    grid_mean_wait[g_idx] = 0.0
+                
+                mean_wait = grid_mean_wait[g_idx]
                 #(ev.navWaitTime)
                 if ev.assignedPatientId is not None:
                     inc = self.env.incidents.get(ev.assignedPatientId)
@@ -879,8 +896,8 @@ class Controller:
             self.buffer_reposition.push(sr_t, ar_t, rr_t, st_2_r, doner_t)
             #print("Repositioning transition pushed:",  ev.id, "state",sr_t,"next state",st_2_r,"done",doner_t,"\n")
         #elif ev.state == EvState.BUSY and ev.status == "Navigation" :
-        for ev,s,a in busy_transitions:
-            if ev.state == EvState.BUSY and ev.status == "Navigation": #was busy is busy
+        for emv,s,a in busy_transitions:
+            if emv.state == EvState.BUSY and ev.status == "Navigation": #was busy is busy
                 done_t = False
                 sn_t  = emv.sarns.get("state") #checked size = 4
                 an_t  = emv.sarns.get("action")
@@ -893,9 +910,9 @@ class Controller:
             else: #was busy, is idle now
                 done_t = True
                 #print("ev",emv.id,"became idle after",emv.aggBusyTime,"last known location",emv.gridIndex,"dst",emv.navdstGrid)
-                sn_t  = ev.sarns.get("state") #checked size = 4
-                an_t  = ev.sarns.get("action")
-                rn_t  = ev.sarns.get("reward")
+                sn_t  = emv.sarns.get("state") #checked size = 4
+                an_t  = emv.sarns.get("action")
+                rn_t  = emv.sarns.get("reward")
                 wits = np.zeros(len(sn_t),dtype = np.float32)
                 st_2_n = wits
             if sn_t is None or an_t is None or rn_t is None:
