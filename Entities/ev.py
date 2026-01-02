@@ -66,6 +66,8 @@ class EV:
         
     def add_busy(self, dt: float) -> None:
         self.aggBusyTime += dt
+        self.assigned_incident_id = None  # Tracks which patient is inside
+        self.remaining_service_time = 0.0
 
 
     # ========== Repositioning logic ==========

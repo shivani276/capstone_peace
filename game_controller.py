@@ -1,158 +1,189 @@
-# File: GT_Controller.py
-
-from Controller import Controller  # Import your ORIGINAL class
+from Controller import Controller
 from Entities.ev import EvState
 import random
 
 class GameTheoryController(Controller):
     def __init__(self, env, **kwargs):
-        # Initialize the original controller
         super().__init__(env, **kwargs)
         
-        # Add new GT-specific variables
-        self.hospital_strategies = {h_id: 'A' for h_id in self.env.hospitals.keys()}
-        self.hospital_stats = {h_id: {'served': 0, 'total_time': 0.0} for h_id in self.env.hospitals.keys()}
+        # We track live stats here to ensure we have data for the N/T calculation
+        # This acts as the "Memory" for the Nash Game.
+        self.hospital_stats = {h_id: {'served': 20, 'total_time': 600.0} for h_id in self.env.hospitals.keys()}
         self.redirect_wait_threshold = 30.0 
 
-    def set_strategies(self, new_strategies: dict):
-        self.hospital_strategies = new_strategies.copy()
-        self.hospital_stats = {h_id: {'served': 0, 'total_time': 0.0} for h_id in self.env.hospitals.keys()}
+    def get_hospital_stats(self, h_id):
+        """Safely retrieves N (served) and T (total time) for calculation"""
+        if h_id not in self.hospital_stats:
+            self.hospital_stats[h_id] = {'served': 20, 'total_time': 600.0}
+        return self.hospital_stats[h_id]['served'], self.hospital_stats[h_id]['total_time']
 
-    def resolve_destination(self, ev):
-        """GT Logic: Choose destination based on Strategies (A/R)"""
+    def resolve_destination(self, ev, incident_id):
+        """
+        --- THE ONLINE NASH LOGIC ---
+        Runs ONCE per incident when the EV is ready to go to a hospital.
+        """
+        print(f"\n[Incident {incident_id}] Running Nash Equilibrium Calculation...")
+        
         hospitals = list(self.env.hospitals.values())
         
-        # 1. Default: Nearest Hospital
-        nearest_h = min(hospitals, key=lambda h: h.estimate_eta_minutes(ev.location[0], ev.location[1], 40.0))
-        target_h = nearest_h
+        # 1. Identify Candidates
+        # Option A: The Geographically Nearest (Default)
+        h1 = min(hospitals, key=lambda h: h.estimate_eta_minutes(ev.location[0], ev.location[1], 40.0))
+        
+        # Option B: The Best Alternative (Next Nearest)
+        candidates = [h for h in hospitals if h.id != h1.id]
+        if not candidates:
+            print(f"  -> Only one hospital exists. Going to H{h1.id}.")
+            return h1.gridIndex
+            
+        h2 = min(candidates, key=lambda h: h.estimate_eta_minutes(ev.location[0], ev.location[1], 40.0))
 
-        # 2. Check Strategy
-        strategy = self.hospital_strategies.get(nearest_h.id, 'A')
+        # 2. Get Current Historical Stats (N and T)
+        n1, t1 = self.get_hospital_stats(h1.id)
+        n2, t2 = self.get_hospital_stats(h2.id)
 
-        if strategy == 'R':
-            # If Redirecting and busy, go to next nearest
-            current_wait = getattr(nearest_h, 'waitTime', 0.0) or 0.0
-            if current_wait > self.redirect_wait_threshold:
-                candidates = [h for h in hospitals if h.id != nearest_h.id]
-                if candidates:
-                    target_h = min(candidates, key=lambda h: h.estimate_eta_minutes(ev.location[0], ev.location[1], 40.0))
+        # 3. Calculate Payoffs (Projected Efficiency)
+        # Service Time Constant (e.g. 30 mins)
+        service_time = 30.0 
 
-        return target_h.gridIndex
+        # --- SCENARIO A: Choose H1 ---
+        eta_1 = h1.estimate_eta_minutes(ev.location[0], ev.location[1], 40.0)
+        # Check if hospital has a queue (waitTime)
+        wait_1 = getattr(h1, 'waitTime', 0.0) or 0.0 
+        
+        trip_cost_1 = eta_1 + wait_1 + service_time
+        score_1 = (n1 + 1) / (t1 + trip_cost_1)
+        
+        # --- SCENARIO B: Choose H2 (Redirect) ---
+        eta_2 = h2.estimate_eta_minutes(ev.location[0], ev.location[1], 40.0)
+        wait_2 = getattr(h2, 'waitTime', 0.0) or 0.0
+        
+        trip_cost_2 = eta_2 + wait_2 + service_time
+        score_2 = (n2 + 1) / (t2 + trip_cost_2)
 
-    # --- THE OVERRIDE ---
-    # We copy-paste your _tick_check here and change ONLY the navigation part.
+        # 4. detailed Print Logs
+        print(f"  > Option A (Nearest): H{h1.id} | ETA: {eta_1:.1f}m | Queue: {wait_1:.1f}m | Total Cost: {trip_cost_1:.1f}m")
+        print(f"    -> Projected Eff Score: {score_1:.6f}")
+        
+        print(f"  > Option B (Redirect): H{h2.id} | ETA: {eta_2:.1f}m | Queue: {wait_2:.1f}m | Total Cost: {trip_cost_2:.1f}m")
+        print(f"    -> Projected Eff Score: {score_2:.6f}")
+
+        # 5. The Decision
+        if score_1 >= score_2:
+            print(f"  >>> DECISION: STAY with H{h1.id} (Score {score_1:.6f} >= {score_2:.6f})")
+            return h1.gridIndex
+        else:
+            print(f"  >>> DECISION: REDIRECT to H{h2.id} (Score {score_2:.6f} > {score_1:.6f})")
+            return h2.gridIndex
+
+    # --- MANUAL STATUS UPDATER (Physics) ---
+    def _manual_status_update(self, time_delta_minutes):
+        """Updates EV status (Nav -> Service -> Idle) and Resolves Incidents"""
+        for ev in self.env.evs.values():
+            
+            # 1. Navigation -> Service
+            if ev.status == "Navigation":
+                if hasattr(ev, 'navEtaMinutes'):
+                    ev.navEtaMinutes -= time_delta_minutes
+                else:
+                    ev.navEtaMinutes = 0
+
+                if ev.navEtaMinutes <= 0:
+                    ev.status = "Service"
+                    ev.navEtaMinutes = 0
+                    ev.remaining_service_time = 30.0 # Fixed Service Time
+                    
+                    # Snap to location
+                    if ev.navdstGrid in self.env.hospitals:
+                        h_obj = self.env.hospitals[ev.navdstGrid]
+                        if hasattr(h_obj, 'location'): ev.location = h_obj.location
+                        elif hasattr(h_obj, 'lat'): ev.location = (h_obj.lat, h_obj.lon)
+
+            # 2. Service -> Idle (Resolved)
+            elif ev.status == "Service":
+                ev.remaining_service_time -= time_delta_minutes
+                
+                if ev.remaining_service_time <= 0:
+                    # Free the EV
+                    ev.status = "Idle"
+                    ev.state = EvState.IDLE
+                    ev.remaining_service_time = 0
+                    
+                    # Update Stats & Resolve Incident
+                    if hasattr(ev, 'assigned_incident_id') and ev.assigned_incident_id is not None:
+                        inc_id = ev.assigned_incident_id
+                        if inc_id in self.env.incidents:
+                            inc = self.env.incidents[inc_id]
+                            inc.status = "RESOLVED"
+                            
+                            # Update our GT Stats for next time
+                            h_id = inc.hospital_id 
+                            # If hospital_id wasn't set on incident, we skip stats update
+                            if h_id is not None:
+                                if h_id not in self.hospital_stats:
+                                    self.hospital_stats[h_id] = {'served': 20, 'total_time': 600.0}
+                                
+                                self.hospital_stats[h_id]['served'] += 1
+                                # Approx time calc
+                                total_t = getattr(inc, 'travel_time', 15) + 30 
+                                self.hospital_stats[h_id]['total_time'] += total_t
+                                
+                            print(f"  [Status] Incident {inc_id} RESOLVED by EV {ev.id}")
+                        
+                        ev.assigned_incident_id = None
+
     def _tick_check(self, t: int) -> dict:
-        self.slot_idle_time = []
-        self.slot_idle_energy = []
         self.list_metrics = {} 
 
-        # 1) Spawn incidents
+        # 1. Spawn & Dispatch
         self._spawn_incidents_for_tick(t)
-        
-        # Update imbalance
-        for g in self.env.grids.values():
-            g.imbalance = g.calculate_imbalance(self.env.evs, self.env.incidents)
-        
-        # 2) IDLE EVs (Keep original logic)
-        for ev in self.env.evs.values():
-            if ev.state == EvState.IDLE and ev.status == "Idle":
-                state_vec = self._build_state(ev)
-                ev.sarns["state"] = state_vec
-                a_gi = self._select_action(state_vec, ev.gridIndex)
-                ev.sarns["action"] = a_gi
-                
-                idle_time = ev.aggIdleTime
-                ev.metric.append(idle_time)
-                self.list_metrics[ev.id] = ev.metric
-                self.slot_idle_time.append(idle_time)
-                self.slot_idle_energy.append(ev.aggIdleEnergy)
-            
-        # 3) Accept offers
-        self.env.accept_reposition_offers()
         dispatches = self.env.dispatch_gridwise(beta=0.5)
-        self._last_dispatches = dispatches if dispatches else []
         
-        # 4) NAVIGATION (This is the ONLY changed section)
-        nav_actions: list = []
+        # Link Incident ID to EV
+        if dispatches:
+            for ev_id, inc_id in dispatches.items():
+                if ev_id in self.env.evs:
+                    self.env.evs[ev_id].assigned_incident_id = inc_id
+
+        # 2. RUN NASH LOGIC (Navigation Decisions)
         for ev in self.env.evs.values():
             if ev.state == EvState.BUSY and ev.status == "Navigation":
+                
+                # Check if we already have a destination. If not (or if we want to re-eval), run logic.
+                # Usually dispatch sets 'navdstGrid', but we override it here.
+                
+                # Only run logic if we haven't locked it in (optional check)
+                # For now, we run it every tick the EV is in "Navigation" state 
+                # BUT to prevent spamming logs, we should only do it once per trip.
+                # A simple way: check if ev.navEtaMinutes is not set or 0, implying start of trip.
+                
+                is_start_of_trip = (not hasattr(ev, 'navEtaMinutes') or ev.navEtaMinutes == 0.0)
+                
+                if is_start_of_trip:
+                    # Run Nash
+                    inc_id = getattr(ev, 'assigned_incident_id', '?')
+                    target_grid = self.resolve_destination(ev, inc_id) 
+                    
+                    # Apply Result
+                    h = self.env.hospitals.get(target_grid)
+                    if h:
+                        eta = h.estimate_eta_minutes(ev.location[0], ev.location[1], 40.0)
+                        ev.nextGrid = self.env.next_grid_towards(ev.gridIndex, h.gridIndex)
+                        ev.navdstGrid = h.gridIndex
+                        ev.navEtaMinutes = eta # Set ETA, which stops us from re-running this block next tick
+                        
+                        # Set Incident's hospital ID for stats tracking later
+                        if inc_id in self.env.incidents:
+                            self.env.incidents[inc_id].hospital_id = h.id
+
+                # Boilerplate for logging
                 state_vec, _ = self.build_state_nav1(ev) 
                 ev.sarns["state"] = state_vec
-                
-                # --- CHANGED: Use GT logic instead of DQN ---
-                a_gi = self.resolve_destination(ev) 
-                # --------------------------------------------
-
-                ev.sarns["action"] = a_gi
+                ev.sarns["action"] = ev.navdstGrid if ev.navdstGrid else 0
                 ev.sarns["reward"] = 0.0
-                ev.navEtaMinutes = 0.0
 
-                h = self.env.hospitals.get(a_gi)
-                if h is not None:
-                    eta = h.estimate_eta_minutes(ev.location[0], ev.location[1], kmph=40.0)
-                    ev.nextGrid = self.env.next_grid_towards(ev.gridIndex, h.gridIndex)
-                    ev.navdstGrid = h.gridIndex
-                    ev.status = "Navigation"
-
-                    if h.waitTime is not None:
-                        w_busy = eta + h.waitTime
-                        ev.navEtaMinutes = w_busy
-                    else:
-                        ev.navEtaMinutes = eta
-
-                try:
-                    nav_actions.append((ev.id, a_gi, 0.0, float(ev.navEtaMinutes)))
-                except Exception:
-                    pass
-
-        self._last_nav_actions = nav_actions if nav_actions else []
-        
-        # 5) Update Physics
+        # 3. Physics Update
+        self._manual_status_update(time_delta_minutes=8) 
         self.env.update_after_tick(8)
         
-        self.slot_idle_time_avg = sum(self.slot_idle_time)/len(self.slot_idle_time) if self.slot_idle_time else 0.0
-        self.slot_idle_energy_avg = sum(self.slot_idle_energy)/len(self.slot_idle_energy) if self.slot_idle_energy else 0.0
-        
         return self.list_metrics
-
-    # Helper to calculate scores at the end of episodes
-    def update_hospital_stats(self):
-        for inc in self.env.incidents.values():
-             # Assuming status 3 is RESOLVED/DONE
-            if inc.status == 3 or inc.status == "RESOLVED":
-                h_id = inc.hospital_id 
-                # Ensure travel_time/wait_time are valid numbers in your Env
-                total_t = inc.travel_time + inc.wait_time + inc.service_time
-                
-                if h_id in self.hospital_stats:
-                    self.hospital_stats[h_id]['served'] += 1
-                    self.hospital_stats[h_id]['total_time'] += total_t
-
-        print("--- DEBUGGING STATS ---")
-        found_finished = False
-        
-        for inc in self.env.incidents.values():
-            # 1. Print the status of the first few incidents to see what they look like
-            # This will tell you if status is an Integer (3, 4) or String ("DONE")
-            if inc.id < 5: 
-                print(f"Incident {inc.id}: Status={inc.status} (Type: {type(inc.status)})")
-
-            # 2. Add your SPECIFIC status codes here
-            # In many MAP envs, Status 3 = Resolved, 4 = Archived.
-            # Check your Entities/Incident.py to be sure!
-            if str(inc.status) in ["3", "4", "RESOLVED", "DONE", "IncidentStatus.DONE"]:
-                finished_count += 1
-                # ... (rest of calculation) ...
-                found_finished = True
-        
-        if not found_finished:
-            print("WARNING: No finished incidents found! Check the Status ID.")
-
-    def get_final_scores(self):
-        scores = {}
-        for h_id, data in self.hospital_stats.items():
-            if data['total_time'] > 0:
-                scores[h_id] = data['served'] / data['total_time']
-            else:
-                scores[h_id] = 0.0
-        return scores

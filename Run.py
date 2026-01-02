@@ -1,775 +1,313 @@
-#==============Checking Entities=================
-#--------------Checking EV-----------------------
 '''
-from Entities.ev import EV, EvState
-
-ev = EV(id=1, gridIndex=5, location=(10.0, 20.0))
-#print(ev)
-
-#ev.assign_incident(99)
-#print(ev.assignedPatientId, ev.status, ev.aggIdleTime, ev.aggIdleEnergy)
-#ev.release_incident()
-#print(ev)
-ev.move_to(3, (1, 1))
-#print(ev.gridIndex, ev.location)    
-
-ev.add_idle(8)
-#print(ev.aggIdleTime)
-
-before_e = ev.aggIdleEnergy
-before_t = ev.aggIdleTime
-ev.execute_reposition()
-print(ev.aggIdleEnergy - before_e, ev.aggIdleTime - before_t)
-
-print(ev.to_dict())
-'''
-
-#---------------Checking Grid-----------------
-'''
-from Entities.GRID import Grid
-from Entities.ev import EV, EvState
-from Entities.Incident import Incident, IncidentStatus
-from datetime import datetime
-
-g = Grid(index=0)
-evs = {
-    1: EV(1, 0, (0,0)),
-    2: EV(2, 0, (0,0))
-}
-incs = {
-    10: Incident(10, 0, datetime.now(), (0,0)),
-    11: Incident(11, 0, datetime.now(), (0,0))
-}
-
-g.evs = [1,2]
-g.incidents = [10,11]
-
-evs[1].state = EvState.IDLE
-evs[1].status = "available"
-evs[1].sarns["action"] = 0
-
-evs[2].state = EvState.BUSY
-evs[2].status = "Navigation"
-#print(g.count_idle_available_evs(evs))
-incs[10].assignedEvId = 1
-#print(g.count_unassigned_incidents(incs))
-#print(g.calculate_imbalance(evs, incs))
-#print(g.get_eligible_idle_evs(evs))
-#print(g.get_pending_incidents(incs))
-
-#g = Grid(index=0)
-
-# Add neighbour 1
-#g.add_neighbour(1)
-#print(g.neighbours)   # Expected: [1]
-
-# Add same neighbour again
-#g.add_neighbour(1)
-#print(g.neighbours)   # Expected: still [1]
-
-#g = Grid(index=0)
-
-#g.add_incident(100)
-#print(g.incidents)     # Expected: [100]
-
-#g.add_incident(100)
-#print(g.incidents)     # Expected: still [100]
-print(g.to_dict)
-'''
-#-----------------Check Incident--------------
-'''
-from Entities.Incident import Incident, Priority
-from datetime import datetime
-
-i = Incident(1, 5, datetime.now(), (10,10))
-
-#print(i)
-i.assign_ev(3)
-#print(i.status, i.assignedEvId)
-i.add_wait(10)
-#print(i.waitTime)
-
-print(i.get_urgency_score())
-i.waitTime = 100
-print(i.get_urgency_score())
-'''
-#=======================SERVICES===========================
-#-----------------------Repositioning----------------------
-'''
-from Entities.ev import EV, EvState
-from Entities.GRID import Grid
-from services.repositioning import RepositioningService
-
-# Grids
-g0 = Grid(index=0)
-g1 = Grid(index=1)
-g0.add_neighbour(1)
-g1.add_neighbour(0)
-
-grids = {0: g0, 1: g1}
-
-# EV
-ev = EV(id=1, gridIndex=0, location=(0.0, 0.0))
-ev.state = EvState.IDLE
-ev.status = "available"
-ev.aggIdleTime = 30.0
-ev.aggIdleEnergy = 5.0
-ev.sarns["action"] = 1  # wants to go to grid 1
-
-g0.add_ev(ev.id)
-evs = {ev.id: ev}
-
-incidents = {}  # <- no incidents, so imbalance = 0
-
-rep = RepositioningService()
-
-print("before:", ev.nextGrid, ev.sarns.get("reward"), ev.status)
-rep.accept_reposition_offers(evs, grids, incidents)
-print("after:", ev.nextGrid, ev.sarns.get("reward"), ev.status)
-
-from datetime import datetime
-from Entities.Incident import Incident, Priority
-
-# 1) Create one incident in grid 1
-inc = Incident(
-    id=1,
-    gridIndex=1,
-    timestamp=datetime.now(),
-    location=(0.0, 0.0),
-    priority=Priority.MED,
-)
-incidents = {1: inc}
-g1.add_incident(inc.id)
-
-# 2) Now run accept_reposition_offers again
-rep.accept_reposition_offers(evs, grids, incidents)
-
-print("after:", ev.nextGrid, ev.sarns.get("reward"), ev.status)
-'''
-#-------------------Dispatching------------------------------
-'''
-from services.dispatcher import DispatcherService
-from Entities.GRID import Grid
-from Entities.ev import EV, EvState
-from Entities.Incident import Incident
-from datetime import datetime
-
-g = Grid(0)
-ev = EV(1, 0, (0,0))
-ev.sarns["action"] = 0
-ev.status = "available"
-ev.state = EvState.IDLE
-
-inc = Incident(10,0,datetime.now(),(1,1),waitTime=8)
-
-g.evs=[1]
-g.incidents=[10]
-
-evs={1:ev}
-incs={10:inc}
-grids={0:g}
-
-d = DispatcherService()
-print(d.dispatch_gridwise(grids,evs,incs))
-print(ev)
-'''
-#===================TESTING MAP_env=============================
-'''
-from MAP_env import MAP
-from Entities.ev import EvState
-from Entities.Incident import IncidentStatus
-from utils.Helpers import P_MAX
-
-env = MAP("Data/grid_config_2d.json")   # your real path
-env.init_evs()
-#env.create_incident(0, (10,10))
-ev = env.create_ev(0)
-
-#print(env.grids[0].evs)
-#print(env.grids[0].incidents)
-print("nRows, nCols:", env.nRows, env.nCols)
-print("num grids:", len(env.grids))
-
-mid = list(env.grids.keys())[len(env.grids)//2]
-g = env.grids[mid]
-print("Grid", mid, "neighbours:", sorted(g.neighbours))
-
-
-all_evs = env.evs
-print("EV count:", len(all_evs))
-
-# Check each EV exists in its grid’s ev list
-for eid, ev in all_evs.items():
-    assert eid in env.grids[ev.gridIndex].evs, f"EV {eid} not in its grid list!"
-print("✅ EVs correctly placed in grids.")
-
-
-ev = env.create_ev(0)
-print("New EV:", ev.id, ev.gridIndex, ev.location)
-print("Grid[0] evs:", env.grids[0].evs)
-
-env.move_ev_to_grid(ev.id, 1)
-print("After move:", ev.id, ev.gridIndex)
-print("Grid[0] evs:", env.grids[0].evs)
-print("Grid[1] evs:", env.grids[1].evs)
-
-
-
-inc = env.create_incident(grid_index=0, location=(10.0, 20.0))
-print("Incident:", inc.id, inc.gridIndex, inc.location)
-print("Grid[0] incidents:", env.grids[0].incidents)
-
-#------------Micro test - Idle EV in place---------------
-
-ev.state = EvState.IDLE
-ev.status = "available"
-ev.sarns["action"] = ev.gridIndex  # <- add this
-print("Before:", ev.aggIdleTime)
-
-env.update_after_timeslot(dt_minutes=8.0)
-
-print("After:", ev.aggIdleTime)  # Expect +8
-'''
-#------------------Micro Test - Dispatching EV---------------
-'''
-ev.status = "Dispatching"
-ev.state = EvState.IDLE
-
-# Incident in grid 5
-inc = env.create_incident(grid_index=5, location=(0.0,0.0))
-ev.assignedPatientId = inc.id
-ev.sarns["reward"] = None  # no reward yet
-
-print("Before:", ev.gridIndex, ev.state, ev.status)
-
-env.update_after_timeslot(dt_minutes=8.0)
-
-print("After:", ev.gridIndex, ev.state, ev.status)
-'''
-#------------------Repositiong-------------------
-'''
-ev.state = EvState.IDLE
-ev.status = "Repositioning"
-ev.nextGrid = 3
-ev.sarns["reward"] = 0.8
-ev.aggIdleTime = 0.0
-ev.aggIdleEnergy = 0.0
-
-print("Before:", ev.gridIndex, ev.aggIdleTime, ev.aggIdleEnergy)
-
-env.update_after_timeslot(dt_minutes=8.0)
-
-print("After:", ev.gridIndex, ev.aggIdleTime, ev.aggIdleEnergy)
-'''
-#-------------------Incident cancellation---------------------
-'''
-inc = env.create_incident(grid_index=0, location=(0.0,0.0))
-inc.waitTime = P_MAX + 1  # Force over threshold
-
-print("Before:", env.incidents.keys(), env.grids[0].incidents)
-
-env.update_after_timeslot(dt_minutes=8.0)
-
-print("After:", env.incidents.keys(), env.grids[0].incidents)
-'''
-#=================CHECKING NEIGHBOUR ALLOTMENT==================#
-'''
-from MAP_env import MAP
-from Controller import Controller
-from Entities.ev import EvState
-from Entities.Incident import IncidentStatus
-from utils.Helpers import P_MAX
-
-env = MAP("Data/grid_config_2d.json")   # your real path
-env.init_evs()
-
-# 1. Build env + controller (use your real paths)
-
-ctrl = Controller(env, csv_path="Data/5Years_SF_calls_latlong.csv")
-
-# 2. Pick a cell that should be interior (has all 8 neighbours)
-center_idx = (env.nRows // 2) * env.nCols + (env.nCols // 2)
-
-neighs = ctrl._get_direction_neighbors_for_index(center_idx)
-print("Center index:", center_idx)
-print("Neighbours in order [N, NE, E, SE, S, SW, W, NW]:")
-print(neighs)
-print("Length:", len(neighs))
-
-corner = 0
-print("Corner 0 neighbours:", ctrl._get_direction_neighbors_for_index(corner))
-'''
-
-#======================Build_state===================#
-'''
-from MAP_env import MAP
-from Entities.ev import EvState
-from Controller import Controller
-env = MAP("Data/grid_config_2d.json")
-
-env.init_evs()
-# reuse env, ctrl from above
-ev = next(iter(env.evs.values()))  # just grab the first EV
-ev.state = EvState.IDLE
-ev.status = "Idle"
-ctrl = Controller(env, csv_path="Data/5Years_SF_calls_latlong.csv")
-
-state = ctrl._build_state(ev)
-print("State length:", len(state))
-print("State vector:", state)
-
-'''
-
-#====================Directional poke itseems==================#
-'''
-from Entities.Incident import Incident, Priority, IncidentStatus
-from datetime import datetime
-from MAP_env import MAP
-from Entities import GRID, ev
-from Controller import Controller
-env = MAP("Data/grid_config_2d.json")   # your real path
-env.init_evs()
-
-ctrl = Controller(env, csv_path="Data/5Years_SF_calls_latlong.csv")
-ev = next(iter(env.evs.values()))
-gi = ev.gridIndex
-print("EV grid index:", gi)
-
-# Get neighbour indices by direction order
-neighs = ctrl._get_direction_neighbors_for_index(gi)
-print("Neighbour indices [N, NE, E, SE, S, SW, W, NW]:", neighs)
-
-# Build baseline state
-base_state = ctrl._build_state(ev)
-print("Baseline neighbour imbalances:", base_state[2:10])
-
-# Now create an incident in some neighbour that exists, say E (index 2)
-east_idx = neighs[2]
-if east_idx != -1:
-    inc = env.create_incident(grid_index=east_idx, location=(0.0,0.0), priority="MED")
-    # Recompute imbalance
-    for g in env.grids.values():
-        g.imbalance = g.calculate_imbalance(env.evs, env.incidents)
-
-    new_state = ctrl._build_state(ev)
-    print("New neighbour imbalances:", new_state[2:10])
-
-    print("Change at E slot (index 4):", base_state[4], "->", new_state[4])
-else:
-    print("E neighbour does not exist for this EV grid; try another direction.")
-'''
-
-#=========================Action_Check========================#
-'''
-import numpy as np
-from Entities.Incident import Incident, Priority, IncidentStatus
-from datetime import datetime
-from MAP_env import MAP
-from Entities import GRID, ev
-from Controller import Controller
-env = MAP("Data/grid_config_2d.json")   # your real path
-env.init_evs()
-
-ctrl = Controller(env, csv_path="Data/5Years_SF_calls_latlong.csv")
-
-ctrl.epsilon = 1.0  # force random actions
-
-ev = next(iter(env.evs.values()))
-gi = ev.gridIndex
-
-neighs = ctrl._get_direction_neighbors_for_index(gi)
-valid_grids = {gi} | {idx for idx in neighs if idx != -1}
-print("EV grid:", gi)
-print("Neighbour grids:", neighs)
-print("Valid destination set:", valid_grids)
-
-bad = 0
-for _ in range(100):
-    s = ctrl._build_state(ev)
-    dest = ctrl._select_action(s, gi)
-    if dest not in valid_grids:
-        bad += 1
-        print("Bad destination:", dest)
-
-print("Bad destinations count:", bad)
-'''
-
-#==========================checkin da DQN=========================#
-'''
-import torch
-import torch.nn as nn
-import numpy as np
-
-from MAP_env import MAP
-from Controller import Controller
-from Entities.ev import EvState  # only if you want to fiddle with state/status later
-
-
-# 1) Build environment and controller
-env = MAP("Data/grid_config_2d.json")     # adjust path if needed
-env.init_evs()
-
-ctrl = Controller(
-    env,
-    csv_path="Data/5Years_SF_calls_latlong.csv"  # adjust path if needed
-)
-
-print("EV count:", len(env.evs))
-
-
-# 2) Dummy network that always returns q = [0,1,2,3,4,5,6,7,8]
-class DummyNet(nn.Module):
-    def __init__(self):
-        super().__init__()
-    def forward(self, x):
-        # Return [0,1,2,3,4,5,6,7,8] for every input in the batch
-        batch_size = x.size(0)
-        q = torch.arange(9, dtype=torch.float32, device=x.device).unsqueeze(0).expand(batch_size, -1)
-        return q
-
-
-# 3) Replace the reposition main DQN with DummyNet
-ctrl.dqn_reposition_main = DummyNet().to(ctrl.device)   # type: ignore
-ctrl.epsilon = 0.0  # force greedy (no random exploration)
-
-
-# 4) Pick one EV and test action mapping
-ev_obj = next(iter(env.evs.values()))   # grab first EV object
-gi = ev_obj.gridIndex
-
-neighs = ctrl._get_direction_neighbors_for_index(gi)
-print("EV grid index:", gi)
-print("Neighbours [N, NE, E, SE, S, SW, W, NW]:", neighs)
-
-# Build its state
-s = ctrl._build_state(ev_obj)
-print("State length:", len(s))
-print("State vector:", s)
-
-# 5) Ask controller for an action with DummyNet
-dest = ctrl._select_action(s, gi)
-print("Chosen dest:", dest)
-
-# With strictly increasing q-values, best slot is 8
-# → action slot 8 → direction index 7 → NW neighbour (neighs[7])
-nw_idx = neighs[7]
-expected = nw_idx if nw_idx != -1 else gi
-print("Expected dest (NW or stay if -1):", expected)
-'''
-
-#======================PushRepositionBuffer=================#
-
-'''import numpy as np
-from Entities.Incident import Incident, Priority, IncidentStatus
-from datetime import datetime
-from MAP_env import MAP
-from Entities import GRID
-from Entities.ev import EvState
-from Controller import Controller
-env = MAP("Data/grid_config_2d.json")   # your real path
-env.init_evs()
-
-ctrl = Controller(env, csv_path="Data/5Years_SF_calls_latlong.csv")
-
-print("Buffer size before:", len(ctrl.buffer_reposition))
-
-ev = next(iter(env.evs.values()))
-ev.state = EvState.IDLE
-ev.status = "Repositioning"
-ev.aggIdleTime = 10.0
-ev.aggIdleEnergy = 1.5
-
-# Fake s, a, r as if DQN + service have run
-ev.sarns["state"] = ctrl._build_state(ev)
-ev.sarns["action"] = ev.gridIndex   # say it chose to stay; any int is fine for test
-ev.sarns["reward"] = 0.7
-
-ctrl._push_reposition_transition(ev)
-
-print("Buffer size after:", len(ctrl.buffer_reposition))'''
-
-# ===================== TEST NAV STATE =======================
-
-'''from MAP_env import MAP
-from Controller import Controller
-from Entities.ev import EvState
-
-print("\n========== TESTING build_state_nav1 ==========")
-
-# 1. Build environment + controller (your real paths)
-env = MAP("Data/grid_config_2d.json")
-env.init_evs()
-env.init_hospitals("Data/hospitals_latlong.csv")
-ctrl = Controller(env, csv_path="Data/5Years_SF_calls_latlong.csv")
-
-# 2. Pick any EV to test on
-ev = next(iter(env.evs.values()))
-ev.state = EvState.BUSY     # Navigation only activates for busy EVs
-ev.status = "Navigation"
-
-# 3. Ensure location exists (safety)
-if ev.location is None:
-    ev.location = (0.0, 0.0)
-
-# 4. Call your build_state_nav1 function
-state_vec, grid_ids = ctrl.build_state_nav1(ev)
-
-print("EV id:", ev.id)
-print("EV grid index:", ev.gridIndex)
-print("NAV state_vec:", state_vec)
-print("NAV grid_ids:", grid_ids)
-print("Length of state:", len(state_vec))
-print("Length of grid_ids:", len(grid_ids))
-
-# 5. Check duplicate grid indices
-if len(grid_ids) != len(set(grid_ids)):
-    print("⚠ WARNING: Duplicate grid indices detected (NOT expected!)")
-else:
-    print("✓ No duplicates — HC-grid mapping correct.")
-
-print("========== END TEST ==========\n")
-
-
-# ===================== TEST _select_nav_action (random) =======================
-
-from Entities.ev import EvState
-
-print("\n========== TESTING _select_nav_action (random) ==========")
-
-# 1. Pick a real EV
-ev = next(iter(env.evs.values()))
-ev.state = EvState.BUSY
-ev.status = "Navigation"
-
-# 2. Make sure it has some location
-if ev.location is None:
-    ev.location = (0.0, 0.0)
-
-# 3. Build the navigation state
-state_vec, grid_ids = ctrl.build_state_nav1(ev)
-
-print("State vec:", state_vec)
-print("Grid IDs:", grid_ids)
-
-if len(state_vec) == 0:
-    print("No HC-grids found — cannot test random action.")
-else:
-    # 4. Force epsilon = 1 so RANDOM branch always activates
-    old_eps = ctrl.epsilon
-    ctrl.epsilon = 1.0
-
-    # 5. Call the action selector
-    slot = ctrl._select_nav_action(state_vec)
-
-    # 6. Restore epsilon
-    ctrl.epsilon = old_eps
-
-    if 0 <= slot < len(grid_ids):
-        print("Random slot chosen:", slot)
-        print("Corresponding grid:", grid_ids[slot])
-    else:
-        print("ERROR: invalid slot returned:", slot)
-
-print("========== END TEST ==========\n")
-
-print("\n========== TESTING _tick NAVIGATION BLOCK ==========")
-
-# 0. Properly initialise an episode so sarns keys exist
-ctrl._reset_episode()
-
-# 1. Pick any EV
-ev = next(iter(env.evs.values()))
-
-# 2. Force it into a navigation state
-ev.state = EvState.BUSY
-ev.status = "Navigation"
-
-# 3. Make sure it has some location
-if ev.location is None:
-    # If your Grid has a centre or something similar, prefer that; fallback to (0,0)
-    try:
-        g = env.grids[ev.gridIndex]
-        ev.location = (g.lat, g.lng) if hasattr(g, "lat") else (0.0, 0.0)
-    except Exception:
-        ev.location = (0.0, 0.0)
-
-# 4. Make nav policy random to see variety (optional)
-old_eps = ctrl.epsilon
-ctrl.epsilon = 1.0
-
-# 5. Call one tick
-ctrl._tick(0)   # or ctrl._tick(step_idx) if your signature is like that
-
-# 6. Restore epsilon
-ctrl.epsilon = old_eps
-
-print("========== END _tick NAV TEST ==========\n")'''
-'''
-import pandas as pd
-from utils.Helpers import load_calls  # your helper :contentReference[oaicite:1]{index=1}
-
-csv_path = "Data/5Years_SF_calls_latlong.csv"
-df_all = load_calls(csv_path)
-
-time_col = "Received DtTm"  # adjust if your column name differs
-df_all[time_col] = pd.to_datetime(df_all[time_col], errors="coerce")
-df_all = df_all.dropna(subset=[time_col])
-
-# Normalise to date only
-days = df_all[time_col].dt.normalize()
-
-# Example 1: simple chronological split (first 80% days train, last 20% test)
-unique_days = sorted(days.unique())
-split_idx = int(0.8 * len(unique_days))
-train_days = set(unique_days[:split_idx])
-test_days  = set(unique_days[split_idx:])
-
-df_train = df_all[days.isin(train_days)].copy()
-df_test  = df_all[days.isin(test_days)].copy()
-
-print("Train rows:", len(df_train), "Test rows:", len(df_test))
-print("Train days:", len(train_days), "Test days:", len(test_days))
-
-'''
-
-
-
-import random
-import math
 from MAP_env import MAP
 from game_controller import GameTheoryController
 
-# --- 1. Define a Mock Hospital Class ---
-# This acts exactly like a real Hospital object but we create it on the fly.
-class MockHospital:
-    def __init__(self, h_id, grid_index, lat, lng):
-        self.id = h_id
-        self.gridIndex = grid_index
-        self.location = (lat, lng)
-        self.waitTime = 0.0  # Start with 0 wait
-        
-        # Stats for the Game Theory Score
-        self.total_served_count = 0
-        self.accumulated_total_time = 0.0
-
-    def estimate_eta_minutes(self, u_lat, u_lng, kmph=40.0):
-        """Simple distance estimation (Euclidean approx for speed)"""
-        # Approx: 1 degree lat ~= 111 km
-        d_lat = self.location[0] - u_lat
-        d_lng = self.location[1] - u_lng
-        # Euclidean distance in degrees * 111km/deg
-        dist_km = math.sqrt(d_lat**2 + d_lng**2) * 111.0
-        
-        hours = dist_km / max(1.0, kmph)
-        return hours * 60.0  # Minutes
-
-# ---------------------------------------
-
-def find_nash_equilibrium():
-    print("--- INITIALIZING ENVIRONMENT ---")
+if __name__ == "__main__":
+    print("--- STARTING DYNAMIC NASH SIMULATION ---")
     
-    # 1. Initialize Env
-    # Use your config path, or if you don't have one, try empty MAP() 
-    # but you said you have 9 grids, so likely the MAP loads them.
-    try:
-        env = MAP(grid_config_path="Data/grid_config_2d.json")
-    except TypeError:
-        # Fallback if your code changed to not need args
-        env = MAP()
-        
-    
-
-    # --- 2. THE FIX: Auto-Generate Hospitals from Grids ---
-    if len(env.hospitals) == 0:
-        print(f"DEBUG: No hospitals found. Auto-generating 1 hospital per grid...")
-        
-        # Calculate grid dimensions based on edges
-        # standard MAP_env usually stores these as lists of floats
-        n_cols = len(env.lng_edges) - 1
-        
-        for g_id in env.grids.keys():
-            # 1. Calculate Row and Col from Grid Index
-            # Row = Index // Columns
-            # Col = Index % Columns
-            row_idx = g_id // n_cols
-            col_idx = g_id % n_cols
-            
-            # 2. Get Boundaries from env edges
-            # lat_edges is likely [min, ..., max] or [max, ..., min]
-            # We just need the bounds for this specific row/col
-            try:
-                lat_1 = env.lat_edges[row_idx]
-                lat_2 = env.lat_edges[row_idx + 1]
-                lng_1 = env.lng_edges[col_idx]
-                lng_2 = env.lng_edges[col_idx + 1]
-                
-                # 3. Find Center
-                center_lat = (lat_1 + lat_2) / 2.0
-                center_lng = (lng_1 + lng_2) / 2.0
-                
-                # 4. Create Mock Hospital
-                h_obj = MockHospital(h_id=g_id, grid_index=g_id, lat=center_lat, lng=center_lng)
-                env.hospitals[g_id] = h_obj
-                
-            except IndexError:
-                print(f"Skipping Grid {g_id}: Indices out of bounds of lat/lng edges.")
-                continue
-
-        print(f"DEBUG: Successfully created {len(env.hospitals)} mock hospitals.")
-    # ------------------------------------------------------
-
-    # 3. Setup GT Controller
-    # (Ensure csv_path is correct for your incidents)
+    # 1. Setup
+    env = MAP(grid_config_path="Data/grid_config_2d.json")
     controller = GameTheoryController(env, 
                                       ticks_per_ep=180, 
                                       test_mode=True,
-                                      csv_path="Data\Fire_Department_and_Emergency_Medical_Services_Dispatched_Calls_for_Service_20251208.csv")
+                                      csv_path="Data/Fire_Department_and_Emergency_Medical_Services_Dispatched_Calls_for_Service_20251208.csv")
     
-    # 4. Initialize Strategies
-    h_ids = list(env.hospitals.keys())
-    # Start everyone as 'A' (Accept) or Random
-    current_strategies = {h_id: random.choice(['A', 'R']) for h_id in h_ids}
+    total_episodes = 10 # Change to 500 later
     
-    stable = False
-    iteration = 0
-    max_iter = 100 
-
-    print("\n--- STARTING NASH SEARCH ---")
-
-    while not stable and iteration < max_iter:
-        print(f"\nIteration {iteration} | Current Strategies: {current_strategies}")
-        stable = True 
+    for day in range(total_episodes):
+        print(f"\n>>> STARTING DAY {day}")
         
-        for h_id in h_ids:
-            # --- BASELINE ---
-            controller.set_strategies(current_strategies)
-            controller.run_test_episode(episode_idx=0) 
-            controller.update_hospital_stats()
-            scores_base = controller.get_final_scores()
-            my_score_base = scores_base.get(h_id, 0)
-            
-            # --- SWITCH EXPERIMENT ---
-            new_strat = 'R' if current_strategies[h_id] == 'A' else 'A'
-            test_strategies = current_strategies.copy()
-            test_strategies[h_id] = new_strat
-            
-            controller.set_strategies(test_strategies)
-            controller.run_test_episode(episode_idx=0)
-            controller.update_hospital_stats()
-            scores_new = controller.get_final_scores()
-            my_score_new = scores_new.get(h_id, 0)
-            
-            print(f"  H{h_id}: Current({current_strategies[h_id]})={my_score_base:.4f} vs New({new_strat})={my_score_new:.4f}")
+        # --- MANUAL RESET (Cleans Env for new day) ---
+        env.incidents = {} 
+        for ev in env.evs.values():
+            ev.status = "Idle"
+            ev.remaining_service_time = 0.0
+            ev.assigned_incident_id = None
+            ev.navEtaMinutes = 0.0
+        
+        # Run the Episode
+        controller.run_test_episode(day)
+        
+        print(f"<<< DAY {day} COMPLETE")
+'''
 
-            if my_score_new > my_score_base:
-                print(f"  --> Hospital {h_id} switches to {new_strat}!")
-                current_strategies[h_id] = new_strat
-                stable = False 
+
+from Controller import Controller
+from Entities.ev import EvState
+from MAP_env import MAP
+import random
+import math
+
+class GameTheoryController(Controller):
+    def __init__(self, env, **kwargs):
+        super().__init__(env, **kwargs)
+        
+        # --- PAPER METRICS: MEMORY FOR NASH GAME ---
+        # Stores N (served) and T (total time) for Equation 1: Score = N / T_total
+        # Initialized with small baseline values to avoid division by zero.
+        self.hospital_stats = {h_id: {'served': 10, 'total_time': 300.0} for h_id in self.env.hospitals.keys()}
+        
+        # Paper parameter: "Service Process" (Time spent at hospital)
+        self.SERVICE_TIME_MINUTES = 30.0 
+        
+        # Paper parameter: "Background Noise"
+        # Since ~80% of patients are "walk-ins" (not simulated agents), we need to 
+        # occasionally update hospital stats to reflect this hidden load.
+        self.background_noise_prob = 0.1
+
+    def get_hospital_stats(self, h_id):
+        """Safely retrieves N and T for calculation."""
+        if h_id not in self.hospital_stats:
+            self.hospital_stats[h_id] = {'served': 10, 'total_time': 300.0}
+        return self.hospital_stats[h_id]['served'], self.hospital_stats[h_id]['total_time']
+
+    def get_distance(self, loc1, loc2):
+        """Helper: Euclidean distance for Nearest EV dispatch."""
+        return math.sqrt((loc1[0]-loc2[0])**2 + (loc1[1]-loc2[1])**2)
+
+    def resolve_destination(self, ev, incident_id):
+        """
+        --- ONLINE NON-COOPERATIVE NASH EQUILIBRIUM ---
+        Executed ONCE when an EV is ready to navigate.
+        [cite_start]Hospitals act 'selfishly' to maximize their own Efficiency Score[cite: 22].
+        """
+        print(f"\n[Nash Logic] Incident {incident_id} (EV {ev.id}) Requesting Destination...")
+        
+        hospitals = list(self.env.hospitals.values())
+        
+        # 1. Identify Candidates (Nearest & Next Nearest)
+        # Sort all hospitals by estimated travel time
+        sorted_hospitals = sorted(hospitals, key=lambda h: h.estimate_eta_minutes(ev.location[0], ev.location[1], 40.0))
+        
+        h_nearest = sorted_hospitals[0]
+        # Find the best alternative (competitor) that isn't the nearest one
+        candidates = [h for h in sorted_hospitals if h.id != h_nearest.id]
+        h_next = candidates[0] if candidates else h_nearest
+
+        # 2. H_nearest Evaluates Strategy: ACCEPT vs REDIRECT
+        # [cite_start]Formula: Score = N / T_total [cite: 197]
+        
+        # A. Current Score (Status Quo)
+        n_curr, t_curr = self.get_hospital_stats(h_nearest.id)
+        score_current = n_curr / t_curr if t_curr > 0 else 0
+
+        # B. Projected Score (If Accepted)
+        eta_1 = h_nearest.estimate_eta_minutes(ev.location[0], ev.location[1], 40.0)
+        wait_1 = getattr(h_nearest, 'waitTime', 0.0) or 0.0 # Queue time
+        cost_new_patient = eta_1 + wait_1 + self.SERVICE_TIME_MINUTES
+        
+        # New N is (N+1), New T is (T + cost)
+        score_if_accept = (n_curr + 1) / (t_curr + cost_new_patient)
+
+        print(f"  > H{h_nearest.id} (Nearest) Self-Check:")
+        print(f"    Current Score: {score_current:.6f} | If Accept: {score_if_accept:.6f}")
+
+        # 3. The Decision (Non-Cooperative)
+        selected_hospital = None
+        
+        # STRICT SELFISH CHECK: Only accept if score improves or stays same.
+        if score_if_accept >= score_current:
+            print(f"  >>> DECISION: H{h_nearest.id} ACCEPTS (Efficiency Maintained).")
+            selected_hospital = h_nearest
+        else:
+            print(f"  >>> DECISION: H{h_nearest.id} REJECTS (Efficiency Drop). Attempting Redirect to H{h_next.id}...")
+            
+            # 4. Attempt Redirection
+            # H_next will now perform the same selfish check.
+            n_next, t_next = self.get_hospital_stats(h_next.id)
+            score_next_current = n_next / t_next if t_next > 0 else 0
+            
+            eta_2 = h_next.estimate_eta_minutes(ev.location[0], ev.location[1], 40.0)
+            wait_2 = getattr(h_next, 'waitTime', 0.0) or 0.0
+            cost_redirected = eta_2 + wait_2 + self.SERVICE_TIME_MINUTES
+            
+            score_next_accept = (n_next + 1) / (t_next + cost_redirected)
+            
+            print(f"    > H{h_next.id} (Alternative) Self-Check:")
+            print(f"      Current Score: {score_next_current:.6f} | If Accept: {score_next_accept:.6f}")
+            
+            if score_next_accept >= score_next_current:
+                print(f"  >>> REDIRECTION SUCCESS: H{h_next.id} ACCEPTS.")
+                selected_hospital = h_next
+            else:
+                # [cite_start]"If no hospital accepts... the nearest hospital has to accept" [cite: 95]
+                print(f"  >>> REDIRECTION FAILED: H{h_next.id} REJECTS. Forcing H{h_nearest.id}.")
+                selected_hospital = h_nearest
+
+        return selected_hospital
+
+    def _tick_check(self, t: int) -> dict:
+        self.list_metrics = {} 
+
+        # 1. SPAWN INCIDENTS
+        self._spawn_incidents_for_tick(t)
+        
+        # 2. DISPATCH LOGIC: Assign Nearest IDLE EV
+        # Get live incidents that need an ambulance
+        pending_incidents = [
+            inc for inc in self.env.incidents.values() 
+            if getattr(inc, 'status', 'PENDING') == 'PENDING'
+        ]
+        
+        # Get Idle EVs
+        idle_evs = [ev for ev in self.env.evs.values() if ev.state == EvState.IDLE]
+        
+        for inc in pending_incidents:
+            if not idle_evs:
+                # Optional: Print if you want to know incidents are waiting
+                # print(f"  [Wait] Incident {inc.id} waiting for EV...")
+                break 
+            
+            # Find nearest EV (Euclidean Distance)
+            best_ev = min(idle_evs, key=lambda ev: self.get_distance(ev.location, inc.location))
+            
+            # ASSIGN
+            print(f"[Dispatch] Assigning EV {best_ev.id} to Incident {inc.id}")
+            best_ev.state = EvState.BUSY
+            best_ev.status = "Navigation"
+            best_ev.assigned_incident_id = inc.id
+            
+            # Mark incident as assigned
+            inc.status = "ASSIGNED"
+            
+            idle_evs.remove(best_ev) # Remove from pool
+
+        # 3. NAVIGATION & DECISION LOGIC
+        for ev in self.env.evs.values():
+            if ev.status == "Navigation" and ev.assigned_incident_id is not None:
                 
-        iteration += 1
+                # Check if we have calculated a destination yet
+                has_dest = getattr(ev, 'navdstGrid', None) is not None
+                
+                if not has_dest:
+                    # RUN NASH LOGIC
+                    target_hospital = self.resolve_destination(ev, ev.assigned_incident_id)
+                    
+                    # Apply Physics Targets
+                    ev.navdstGrid = target_hospital.gridIndex
+                    ev.nextGrid = self.env.next_grid_towards(ev.gridIndex, target_hospital.gridIndex)
+                    
+                    # Set Estimated Time of Arrival (ETA)
+                    eta = target_hospital.estimate_eta_minutes(ev.location[0], ev.location[1], 40.0)
+                    ev.navEtaMinutes = eta
+                    
+                    # Link Incident to Hospital (for Stats Later)
+                    if ev.assigned_incident_id in self.env.incidents:
+                         self.env.incidents[ev.assigned_incident_id].hospital_id = target_hospital.id
 
-    print("\n--- EQUILIBRIUM REACHED ---")
-    print("Final Strategies:", current_strategies)
+                # Boilerplate for RL State Vector (Kept from your environment)
+                state_vec, _ = self.build_state_nav1(ev) 
+                ev.sarns["state"] = state_vec
+                ev.sarns["action"] = ev.navdstGrid if ev.navdstGrid else 0
+                ev.sarns["reward"] = 0.0
+
+        # 4. PHYSICS UPDATE
+        self._manual_status_update(time_delta_minutes=8) # Assuming 1 tick = 8 mins
+        self.env.update_after_tick(8)
+        
+        # 5. BACKGROUND NOISE (Simulate walk-ins)
+        for h_id in self.hospital_stats:
+            if random.random() < self.background_noise_prob:
+                self.hospital_stats[h_id]['served'] += 1
+                self.hospital_stats[h_id]['total_time'] += 45.0
+        
+        return self.list_metrics
+
+    def _manual_status_update(self, time_delta_minutes):
+        """Updates EV status (Nav -> Service -> Idle)"""
+        for ev in self.env.evs.values():
+            
+            # A. Navigation -> Service (Arrival)
+            if ev.status == "Navigation":
+                if hasattr(ev, 'navEtaMinutes'):
+                    ev.navEtaMinutes -= time_delta_minutes
+                else:
+                    ev.navEtaMinutes = 0
+
+                if ev.navEtaMinutes <= 0:
+                    # ARRIVED AT HOSPITAL
+                    
+                    # --- ADDED PRINT HERE ---
+                    hospital_id = "Unknown"
+                    if ev.navdstGrid in self.env.hospitals:
+                        hospital_id = self.env.hospitals[ev.navdstGrid].id
+                    print(f"  [Status] EV {ev.id} ARRIVED at H{hospital_id}. Starting Service.")
+                    
+                    ev.status = "Service"
+                    ev.remaining_service_time = self.SERVICE_TIME_MINUTES
+                    
+                    # Snap location to Hospital (Drop off patient)
+                    if ev.navdstGrid in self.env.hospitals:
+                        h_obj = self.env.hospitals[ev.navdstGrid]
+                        if hasattr(h_obj, 'location'): ev.location = list(h_obj.location)
+                        elif hasattr(h_obj, 'lat'): ev.location = [h_obj.lat, h_obj.lon]
+                    
+                    # Clear Navigation Flags
+                    ev.navdstGrid = None 
+
+            # B. Service -> Idle (Completion)
+            elif ev.status == "Service":
+                ev.remaining_service_time -= time_delta_minutes
+                
+                if ev.remaining_service_time <= 0:
+                    # FINISHED
+                    
+                    # 1. Update Game Theory Stats (Learning Loop)
+                    inc_id = ev.assigned_incident_id
+                    if inc_id in self.env.incidents:
+                        inc = self.env.incidents[inc_id]
+                        inc.status = "RESOLVED"
+                        
+                        h_id = getattr(inc, 'hospital_id', None)
+                        if h_id is not None:
+                            # Update N and T
+                            self.hospital_stats[h_id]['served'] += 1
+                            # Approx time added (Wait + Service + Travel proxy)
+                            t_added = 15.0 + self.SERVICE_TIME_MINUTES 
+                            self.hospital_stats[h_id]['total_time'] += t_added
+                            print(f"  [Resolved] Incident {inc_id} at H{h_id}. Stats Updated.")
+
+                    # 2. Reset EV to IDLE
+                    # EV stays at hospital location, ready for next nearest dispatch
+                    ev.status = "Idle"
+                    ev.state = EvState.IDLE
+                    ev.remaining_service_time = 0
+                    ev.assigned_incident_id = None
+
 
 if __name__ == "__main__":
-    find_nash_equilibrium()
+    print("--- STARTING DYNAMIC NASH SIMULATION ---")
+    
+    # 1. Setup Environment
+    # Ensure config path points to your actual JSON file
+    env = MAP(grid_config_path="Data/grid_config_2d.json")
+    
+    # Initialize Controller
+    controller = GameTheoryController(
+        env, 
+        ticks_per_ep=180, 
+        test_mode=True,
+        csv_path="Data/Fire_Department_and_Emergency_Medical_Services_Dispatched_Calls_for_Service_20251208.csv"
+    )
+    
+    total_episodes = 5  # Run 5 days for testing
+    
+    for day in range(total_episodes):
+        print(f"\n>>> STARTING DAY {day}")
+        
+        # --- MANUAL RESET (Clean State) ---
+        env.incidents = {} 
+        for ev in env.evs.values():
+            ev.status = "Idle"
+            ev.state = EvState.IDLE
+            ev.remaining_service_time = 0.0
+            ev.assigned_incident_id = None
+            ev.navEtaMinutes = 0.0
+            ev.navdstGrid = None
+        
+        # Run the Episode
+        controller.run_test_episode(day)
+        
+        print(f"<<< DAY {day} COMPLETE")
+
+

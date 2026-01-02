@@ -516,7 +516,7 @@ class Controller:
         for i, ev in enumerate(ev_list):
             gi = self.rng.choice(all_idx)
             self.env.move_ev_to_grid(ev.id, gi)
-
+            '''
             if i < n_busy_target:
                 ev.set_state(EvState.BUSY)
                 ev.status = "Navigation"
@@ -526,13 +526,14 @@ class Controller:
                 ev.aggIdleTime = 0.0
                 ev.aggIdleEnergy = 0.0
             else:
-                ev.set_state(EvState.IDLE)
-                ev.status = "Idle"
-                ev.nextGrid = None
-                ev.aggIdleTime = self.rng.uniform(0.0, self.max_idle_minutes)
-                ev.aggIdleEnergy = self.rng.uniform(0.0, self.max_idle_energy)
-                ev.navTargetHospitalId = None
-                ev.navEtaMinutes = 0.0
+            '''
+            ev.set_state(EvState.IDLE)
+            ev.status = "Idle"
+            ev.nextGrid = None
+            ev.aggIdleTime = self.rng.uniform(0.0, self.max_idle_minutes)
+            ev.aggIdleEnergy = self.rng.uniform(0.0, self.max_idle_energy)
+            ev.navTargetHospitalId = None
+            ev.navEtaMinutes = 0.0
                 
 
             ev.sarns.clear()
