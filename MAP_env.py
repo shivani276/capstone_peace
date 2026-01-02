@@ -309,7 +309,7 @@ class MAP:
 
 
     # ========== ALGORITHMS (delegated to services) ==========
-    
+    ''' 
     def accept_reposition_offers(self) -> None:
         #print("function called for acepting offers")
         """
@@ -320,7 +320,7 @@ class MAP:
         """
         #print("function call into function :(")
         self.repositioner.accept_reposition_offers(self.evs, self.grids, self.incidents)
-
+    '''
     '''def step_reposition(self) -> None:
         """
         Apply accepted reposition moves and clear pending decisions.
