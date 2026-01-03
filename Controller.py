@@ -456,11 +456,10 @@ class Controller:
                     inc.responseToHospitalMinutes = None
                 try:
                     self._spawned_incidents[inc.id] = inc
-                    #print("incident id",inc)
-                    #print(f"incident stats",inc.to_dict)
+                    print("incident id",inc)
+                    print(f"incident stats",inc.to_dict)
                 except Exception:
                     pass
-                
                 self._spawn_success +=1
 
     def _tick(self, t: int) -> None:
@@ -473,7 +472,7 @@ class Controller:
         for g in self.env.grids.values():
             g.imbalance = g.calculate_imbalance(self.env.evs, self.env.incidents)
         #print("Tick", t, "Grid Demands:")
-
+        
 
         # 2) build states and actions for IDLE EVs
         for ev in self.env.evs.values():
@@ -599,6 +598,7 @@ class Controller:
                 print(f"[DEBUG] EV {ev.id} status={ev.status} at grid {ev.gridIndex}")
         '''
 # Debug block ------------------------------------------------------------------------>
+        ''' 
         print("\n=== DEBUG TICK", t, "===")
 
         # 1) Arrival rates and urgency (ALL grids)
@@ -640,7 +640,7 @@ class Controller:
             )
 
         print("=== END DEBUG ===\n")
-   
+        '''
         #self._train_reposition(batch_size=64, gamma=0.99) - cuz no dqn
         self._train_navigation(batch_size=64, gamma=0.99)
 
