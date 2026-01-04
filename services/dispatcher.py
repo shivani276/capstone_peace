@@ -91,6 +91,8 @@ class DispatcherService:
                     best_ev.assign_incident(inc_id)
                     #best_ev.sarns["reward"] = dispatch_reward
                     best_ev.state = EvState.BUSY
+                    best_ev.aggIdleEnergy = 0
+                    best_ev.aggIdleTime = 0
                     #best_ev.status = "navigation"
                     
                     best_ev.assignedPatientPriority = inc.priority
