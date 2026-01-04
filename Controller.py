@@ -6,10 +6,10 @@ import pandas as pd
 import torch
 import torch.nn.functional as F
 import numpy as np
-
+import torch.nn.utils as nn_utils
 from MAP_env import MAP
 from Entities.ev import EvState
-from Entities.Incident import Priority, IncidentStatus
+from Entities.Incident import IncidentStatus
 from utils.Epsilon import EpsilonScheduler, hard_update, soft_update
 from utils.Helpers import (
     build_daily_incident_schedule,
@@ -34,10 +34,12 @@ class Controller:
             response_time_profile = None,
             ticks_per_ep: int = 180,
             seed: int = 123,
-            csv_path: str = "Data/5Years_SF_calls_latlong.csv",
+            csv_path: str = "Data/Fire_Department_and_Emergency_Medical_Services_Dispatched_Calls_for_Service_20251208_with_index.csv",
             time_col: str = "Received DtTm",
-            lat_col: Optional[str] = "Latitude",
-            lng_col: Optional[str] = "Longitude",
+            #lat_col: Optional[str] = "Latitude",
+            #lng_col: Optional[str] = "Longitude",
+            lat_col: Optional[str] = None,
+            lng_col: Optional[str] = None,            
             wkt_col: Optional[str] = None,
             test_mode: bool = False,
             alpha: float = 0.1
@@ -51,12 +53,13 @@ class Controller:
         #self.repositioning_service = RepositioningService(alpha=alpha) #for the paper
         self.repositioning_service = RepositioningService()
 
-        print("[DEBUG] hospitals at Controller init:", len(self.env.hospitals))
+        #print("[DEBUG] hospitals at Controller init:", len(self.env.hospitals))
         self.ticks_per_ep = ticks_per_ep
         self.rng = random.Random(seed)
 
         # agent params
         self.global_step = 0
+        self.global_tick = 0
         self.epsilon_scheduler = EpsilonScheduler(
             start=1.0,     
             end=0.1,       
@@ -88,24 +91,25 @@ class Controller:
             self.opt_navigation = None
             self.buffer_navigation = DummyBuffer()
         else:
-            state_dim = 12
+            state_dim = 9
             action_dim = 9
             self.dqn_reposition_main = DQNetwork(state_dim, action_dim).to(self.device)
             self.dqn_reposition_target = DQNetwork(state_dim, action_dim).to(self.device)
             self.dqn_reposition_target.load_state_dict(self.dqn_reposition_main.state_dict())
-            self.opt_reposition = torch.optim.Adam(self.dqn_reposition_main.parameters(), lr=1e-3)
-            self.buffer_reposition = ReplayBuffer(100_000)
+            self.opt_reposition = torch.optim.Adam(self.dqn_reposition_main.parameters(), lr=3e-4)
+            self.buffer_reposition = ReplayBuffer(50_000)
 
             action_dim_nav = max(1, len(self.env.hospitals))
             state_dim_nav = max(1, action_dim_nav)
             self.nav_step = 0
-            self.nav_target_update = 500 #500  
-            self.nav_tau = 0.005          
+            self.rep_step = 0
+            #self.nav_target_update = 500 #500  
+            #self.nav_tau = 0.005          
             self.dqn_navigation_main = DQNetwork(state_dim_nav, action_dim_nav).to(self.device)
             self.dqn_navigation_target = DQNetwork(state_dim_nav, action_dim_nav).to(self.device)
             self.dqn_navigation_target.load_state_dict(self.dqn_navigation_main.state_dict())
-            self.opt_navigation = torch.optim.Adam(self.dqn_navigation_main.parameters(), lr=1e-3)
-            self.buffer_navigation = ReplayBuffer(100_000)
+            self.opt_navigation = torch.optim.Adam(self.dqn_navigation_main.parameters(), lr=1e-4)
+            self.buffer_navigation = ReplayBuffer(50_000)
 
             hard_update(self.dqn_reposition_target, self.dqn_reposition_main)
             hard_update(self.dqn_navigation_target, self.dqn_navigation_main)
@@ -126,7 +130,7 @@ class Controller:
 
         self.max_idle_minutes = W_MAX
         self.max_idle_energy = E_MAX
-        self.max_wait_time_HC = H_MAX
+        #self.max_wait_time_HC = H_MAX
 
         self._spawn_attempts = 0
         self._spawn_success = 0
