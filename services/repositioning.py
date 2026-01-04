@@ -7,11 +7,12 @@ from typing import Dict, List, Tuple
 from collections import defaultdict
 
 from Entities.GRID import Grid
+from utils.Helpers import E_MAX, W_MAX
 
 from Entities.ev import EV, EvState
 from Entities.GRID import Grid
 from Entities.Incident import Incident
-from utils.Helpers import utility_repositioning
+from utils.Helpers import utility_repositioning, hop_distance
 
 
 class RepositioningService:
@@ -21,51 +22,64 @@ class RepositioningService:
         self,
         evs: Dict[int, EV],
         grids: Dict[int, Grid],
-        incidents: Dict) -> None:
-        # Group offers by destination grid
-        offers_by_g = defaultdict(list)  # g_idx -> list[(utility, ev_id)]
-        #print("fun call into repositioning")
-        for g_idx, g in grids.items():
-            neighbour_evs = []
-            
-            for nb in g.neighbours:
-                if nb not in grids:
-                    continue
-                neigh_grid = grids[nb]
-                for ev_id in neigh_grid.evs:
-                    
-                    neighbour_evs.append(evs[ev_id])
-            # 2) Build offers_g: offers from neighbour EVs that want THIS grid
-            offers_g = []   # list of tuples (utility, ev_id, ev_obj)
-            for v in neighbour_evs:
-                if v.state != EvState.IDLE:
-                    continue
-                dst = v.sarns.get("action")
-                #u = v.sarns.get("utility")
-                u = utility_repositioning(v.aggIdleTime,v.aggIdleEnergy)
-                if dst is None or u is None:
-                        continue
-                if dst == g_idx:
-                    offers_g.append((float(u), v.id, v))
+        n_cols: int,
+        function) -> None:
 
-            #if not offers_g:
-                #continue
-            offers_g.sort(key=lambda x: x[0], reverse=True)
-            # 4) Capacity: how many EVs this grid "needs"
-            imbalance = g.imbalance
-            cap = max(0, imbalance)
-            accepted = 0
-            while accepted < cap and offers_g:
-                u_val, ev_id, v_obj = offers_g.pop(0)
-                # and record the reposition utility as reward
-                #v_obj.execute_reposition()
-                v_obj.status = "Repositioning"
-                #print("set the status to rep vid", v_obj.id,"status",v_obj.status)
-                v_obj.sarns["reward"] = u_val
-                #print("reward griven after acceptance", v_obj.sarns["reward"],"ev",v_obj.id)
-                v_obj.nextGrid = g_idx
-                accepted += 1
-                #g.add_ev(ev_id)
+        for ev_id, v in evs.items():
+            if v.state != EvState.IDLE:
+                continue
+
+            dst = v.sarns.get("action", None)
+            if dst is None:
+                continue
+
+            if int(dst) == int(v.gridIndex):
+                v.sarns["reward"] = utility_repositioning(
+                    0, 0, v.aggIdleTime, v.aggIdleEnergy, 0.5, E_MAX, W_MAX
+                )
+
+        applicable_evs = []
+        for g_idx, g in grids.items():
+            
+            if g.imbalance < 0:
+                for ev_id in g.evs:
+                    ev_obj = evs[ev_id]
+                    if ev_obj.state == EvState.IDLE:
+                        applicable_evs.append(ev_obj)
+            elif g.imbalance > 0:     
+            # 2) Build offers_g: offers from neighbour EVs that want THIS grid
+                offers_g = []   # list of tuples (utility, ev_id, ev_obj)
+                for v in applicable_evs:
+                    dst = v.sarns.get("action")
+                    #u = v.sarns.get("utility")
+                    c = v.reposition_cost(0.5,E_MAX,W_MAX)  # cost to go to g_idx
+                    if dst is None or c is None:
+                            continue
+                    if dst == g_idx:
+                        offers_g.append((float(c), v.id, v))
+
+                offers_g.sort(key=lambda x: x[0], reverse=False)
+                # 4) Capacity: how many EVs this grid "needs"
+                imbalance = g.imbalance
+                cap = int(max(0, imbalance))
+                accepted = 0
+                y_i_g_t =0
+                while cap > 0 and offers_g:
+                    c_val, ev_id, v_obj = offers_g.pop(0)
+                    v_obj.status = "Repositioning"
+                    y_i_g_t = 1
+                    h_ggp = hop_distance(v_obj.gridIndex, g_idx, n_cols)
+                    v_obj.sarns["reward"] = utility_repositioning(
+                        y_i_g_t, h_ggp, v_obj.aggIdleTime, v_obj.aggIdleEnergy, 0.5, E_MAX, W_MAX
+                    )
+                    v_obj.nextGrid = function(v_obj.gridIndex, g_idx)
+                    accepted += 1
+                    cap -= 1
+                for c_val, ev_id, v in offers_g:
+                    h_ggp = hop_distance(v.gridIndex, g_idx, n_cols)
+                    v.sarns["reward"] = utility_repositioning(
+                        0, h_ggp, v.aggIdleTime, v.aggIdleEnergy, 0.5, E_MAX, W_MAX
+                    )
         
 
     '''def execute_repositions(

@@ -63,13 +63,25 @@ class EV:
         self.state = new_state
 
     def add_idle(self, dt: float) -> None:
-        print("added idle time for staying")
+        #print("added idle time for staying")
         self.aggIdleTime += dt
         self.aggIdleEnergy += 0.012
         
     def add_busy(self, dt: float) -> None:
         self.aggBusyTime += dt
 
+    def reposition_cost(self, beta, eMax, wMax):
+        eDen = float(eMax)
+        wDen = float(wMax)
+
+        eNum = float(getattr(self, "aggIdleEnergy", 0.0))
+        wNum = float(getattr(self, "aggIdleTime", 0.0))
+
+        eTerm = 0.0 if eDen <= 0.0 else (eNum / eDen)
+        wTerm = 0.0 if wDen <= 0.0 else (wNum / wDen)
+
+        b = float(beta)
+        return (b * eTerm) + ((1.0 - b) * wTerm)
 
     # ========== Repositioning logic ==========
    
