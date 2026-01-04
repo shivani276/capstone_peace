@@ -73,7 +73,7 @@ ctrl = Controller(
     csv_path="Data/Fire_Department_and_Emergency_Medical_Services_Dispatched_Calls_for_Service_20251208_with_index.csv"
 )
 #print("initialized evs", ctrl.env)
-n_episodes = 50
+n_episodes = 20
 n_tests = 25
 all_stats = []
 all_nav_loss = []
