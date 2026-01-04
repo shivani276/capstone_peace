@@ -705,13 +705,15 @@ class MAP:
                         g= self.grids.get(ev.nextGrid)
                         if g is not None:
                             ev.aggBusyTime += g.estimate_eta_minutes(ev.location[0], ev.location[1], 40.0)
-                            inc.waitTime += g.estimate_eta_minutes(ev.location[0], ev.location[1], 40.0)
+                            #inc.waitTime += g.estimate_eta_minutes(ev.location[0], ev.location[1], 40.0)
+                            inc.waitTime = g.estimate_eta_minutes(ev.location[0], ev.location[1], 40.0)
                         self.move_ev_to_grid(ev.id, ev.nextGrid)
                         #print("ev ",ev.id,"reached grid",ev.gridIndex,"total busy time",ev.aggBusyTime)
                         
                     elif ev.gridIndex == inc.gridIndex:
                         #print("Entering this loop 2")
-                        inc.waitTime += inc.estimate_eta_minutes(ev.location[0], ev.location[1], 40.0)
+                        #inc.waitTime += inc.estimate_eta_minutes(ev.location[0], ev.location[1], 40.0)
+                        inc.waitTime = inc.estimate_eta_minutes(ev.location[0], ev.location[1], 40.0)
                         ev.aggBusyTime += inc.estimate_eta_minutes(ev.location[0], ev.location[1], 40.0)
                         ev.status = "Navigation"
                         ev.location = inc.location
