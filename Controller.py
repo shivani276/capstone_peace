@@ -489,12 +489,12 @@ class Controller:
 
     #===================== NAVIGATION TRAIN ==================#
 
-    '''def _train_navigation(self, batch_size: int = 64, gamma: float = 0.99):
+    def _train_navigation(self, batch_size: int = 64, gamma: float = 0.99):
         if len(self.buffer_navigation) < batch_size:
             return
 
         # ---- Sample batch ----
-        s, a, r, s2, done = self.buffer_navigation.sample(
+        s, a, r, s2, done,mask = self.buffer_navigation.sample(
             batch_size,
             device=self.device
         )
@@ -527,7 +527,8 @@ class Controller:
         # ---- Bookkeeping ----
         self.ep_nav_losses.append(loss.item())
         self.nav_step += 1
-
+        self.nav_target_update = 2000
+        self.nav_tau = 0.005
         # ---- Soft target update ----
         if self.nav_step % self.nav_target_update == 0:
             with torch.no_grad():
@@ -541,10 +542,10 @@ class Controller:
             print(
                 f"[Controller] NAV train step={self.nav_step} "
                 f"loss={loss.item():.4f}"
-            )'''
+            )
 
     
-    def _train_navigation(self, batch_size: int = 64, gamma: float = 0.99):
+    '''def _train_navigation(self, batch_size: int = 64, gamma: float = 0.99):
         
         if len(self.buffer_navigation) < 2000:
             return
@@ -591,7 +592,7 @@ class Controller:
                         p_t.data.mul_(1.0 - self.nav_tau).add_(self.nav_tau * p.data)
 
         if self.nav_step % 500 == 0:
-            print(f"[Controller] NAV train step={self.nav_step} loss={loss.item():.4f}")
+            print(f"[Controller] NAV train step={self.nav_step} loss={loss.item():.4f}")'''
             
     '''def _train_navigation(
         self,
@@ -603,7 +604,7 @@ class Controller:
             return
 
         # ---- Sample batch ----
-        s, a, r, s2, done = self.buffer_navigation.sample(
+        s, a, r, s2, done,mask = self.buffer_navigation.sample(
             batch_size,
             device=self.device
         )
@@ -817,6 +818,7 @@ class Controller:
         busy_transitions = []
         for ev in self.env.evs.values():    
             if ev.state == EvState.BUSY and ev.status == "Navigation":
+                #print("EV ",ev.id,"status",ev.status)
                 ev.sarns["state"] = []
                 ev.sarns["action"] = None
                 ev.sarns["reward"] = 0
@@ -860,8 +862,11 @@ class Controller:
                         elif ev.assignedPatientPriority == 1:
                             H_MIN = 10.0
                         # R_busy is the total wait (response + hospital) time
+                        print("inc wait",inc.waitTime,"mean wait",mean_wait,"inc id",inc.id)
                         R_busy = inc.waitTime + mean_wait
+
                         ev.sarns["reward"] = utility_navigation(R_busy, H_min= H_MIN, H_max=inc.responseToHospitalMinutes)
+                        #print("ev",ev.id,"utility",ev.sarns["reward"],"r busy",R_busy,"h min",H_MIN,"H_max",inc.responseToHospitalMinutes)
                 #print("reward for navigation", ev.sarns["reward"])        
                 rn_t  = ev.sarns.get("reward")
                 #print("ev",ev.id,"reward",rn_t,"status",ev.status)
@@ -964,7 +969,7 @@ class Controller:
             valid_mask_s2 = torch.as_tensor(valid_mask_s2,dtype =torch.float32,device=self.device).view(-1)
             sr_t = torch.as_tensor(sr_t, dtype=torch.float32, device=self.device).view(-1)
             st_2_r = torch.as_tensor(st_2_r, dtype=torch.float32, device=self.device).view(-1) 
-            self.buffer_reposition.push(sr_t, ar_t, rr_t, st_2_r, doner_t,valid_mask_s2 )
+            #self.buffer_reposition.push(sr_t, ar_t, rr_t, st_2_r, doner_t,valid_mask_s2 )
             #print("rep rewards",rr_t,"evid",emv.id)
             #print("Repositioning transition pushed:",  ev.id, "state",sr_t,"action",ar_t,"next state",st_2_r,"reward",rr_t,"done",doner_t,"\n")
         #elif ev.state == EvState.BUSY and ev.status == "Navigation" :
@@ -993,6 +998,7 @@ class Controller:
             sn_t = torch.as_tensor(sn_t, dtype=torch.float32, device=self.device).view(-1)
             st_2_n = torch.as_tensor(st_2_n, dtype=torch.float32, device=self.device).view(-1)
             self.buffer_navigation.push(sn_t, an_t, rn_t, st_2_n, done_t,mask)
+            #print("smaples pushed into buffer are","\n","state",sn_t,"nextstate",st_2_n,"action",an_t,"reward",rn_t,"done",done_t)
             #print("NAV rewards",rn_t,"evid",emv.id)
             #print("Navigation transition pushed:",  ev.id, "state",sn_t,"next state",st_2_n,"done",done_t,"\n")
             if len(self.buffer_reposition) >= 100:
@@ -1033,7 +1039,7 @@ class Controller:
         #print("for ev number metric list ",emv2.id,"is",emv2.metric)
         #print("for ev nummber",emv.id,"idle time is",emv.aggIdleTime)  
         #print("for ev nummber",emv2.id,"idle time is",emv2.aggIdleTime)
-        self._train_reposition(batch_size=64, gamma=0.99)
+        #self._train_reposition(batch_size=64, gamma=0.99)
         self._train_navigation(batch_size=64, gamma=0.99)
         self.global_tick +=1
         '''print("EV state distribution:",
