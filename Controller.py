@@ -98,6 +98,8 @@ class Controller:
                 self.dqn_reposition_target.load_state_dict(self.dqn_reposition_main.state_dict())
             if self.dqn_reposition_main is not None:
                 self.opt_reposition = torch.optim.Adam(self.dqn_reposition_main.parameters(), lr=1e-3)
+            else:
+                self.opt_reposition = None
             self.buffer_reposition = ReplayBuffer(100)
             self.repositionLogPath = "reposition_buffer_log.txt"
             self.repositionLogStep = 0
@@ -124,6 +126,8 @@ class Controller:
                 self.dqn_navigation_target.load_state_dict(self.dqn_navigation_main.state_dict())
             if self.dqn_navigation_main is not None:
                 self.opt_navigation = torch.optim.Adam(self.dqn_navigation_main.parameters(), lr=1e-4)
+            else:
+                self.opt_navigation = None
             self.buffer_navigation = ReplayBuffer(50_000)
 
             hard_update(self.dqn_reposition_target, self.dqn_reposition_main)
@@ -527,18 +531,20 @@ class Controller:
         self.rep_hard_update = 2000
 
         # -------- SOFT UPDATE (EVERY STEP) --------
-        with torch.no_grad():
-            for p_t, p in zip(
-                self.dqn_reposition_target.parameters(),
-                self.dqn_reposition_main.parameters()
-            ):
-                p_t.data.mul_(1.0 - self.rep_tau).add_(self.rep_tau * p.data)
+        if self.dqn_reposition_main is not None and self.dqn_reposition_target is not None:
+            with torch.no_grad():
+                for p_t, p in zip(
+                    self.dqn_reposition_target.parameters(),
+                    self.dqn_reposition_main.parameters()
+                ):
+                    p_t.data.mul_(1.0 - self.rep_tau).add_(self.rep_tau * p.data)
 
         # -------- HARD UPDATE (EVERY N STEPS) --------
         if self.rep_step % self.rep_hard_update == 0:
-            self.dqn_reposition_target.load_state_dict(
-                self.dqn_reposition_main.state_dict()
-            )
+            if self.dqn_reposition_main is not None and self.dqn_reposition_target is not None:
+                self.dqn_reposition_target.load_state_dict(
+                    self.dqn_reposition_main.state_dict()
+                )
 
         if self.rep_step % 500 == 0:
             print(
@@ -942,7 +948,11 @@ class Controller:
                 rr_t  = ev.sarns.get("reward")
                 st_2_r = np.zeros(len(sr_t), dtype=np.float32)
                 #print("size of s2",len(st_2_r))
-            valid_mask_s2 = self.get_valid_action_mask(emv.gridIndex)
+            # Build valid action mask: slot 0 (stay) is always valid, others based on grid imbalance
+            grid_ids = sorted(self.env.grids.keys())
+            valid_mask_s2 = [1.0]  # slot 0 stay always valid
+            for gid in grid_ids:
+                valid_mask_s2.append(1.0 if self.env.grids[gid].imbalance > 0 else 0.0)
             valid_mask_s2 = torch.as_tensor(valid_mask_s2,dtype =torch.float32,device=self.device).view(-1)
             sr_t = torch.as_tensor(sr_t, dtype=torch.float32, device=self.device).view(-1)
             st_2_r = torch.as_tensor(st_2_r, dtype=torch.float32, device=self.device).view(-1) 
