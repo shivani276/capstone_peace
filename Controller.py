@@ -72,7 +72,7 @@ class Controller:
                 def __len__(self): return 0
 
             self.dqn_reposition_main = None
-            self.dqn_reposition_target = None
+            self.dqn_reposition_target
             self.opt_reposition = None
             self.buffer_reposition = DummyBuffer()
             
@@ -94,8 +94,10 @@ class Controller:
 
             self.dqn_reposition_main = DQNetwork(state_dim, action_dim).to(self.device)
             self.dqn_reposition_target = DQNetwork(state_dim, action_dim).to(self.device)
-            self.dqn_reposition_target.load_state_dict(self.dqn_reposition_main.state_dict())
-            self.opt_reposition = torch.optim.Adam(self.dqn_reposition_main.parameters(), lr=1e-3)
+            if self.dqn_reposition_main is not None and self.dqn_reposition_target is not None:
+                self.dqn_reposition_target.load_state_dict(self.dqn_reposition_main.state_dict())
+            if self.dqn_reposition_main is not None:
+                self.opt_reposition = torch.optim.Adam(self.dqn_reposition_main.parameters(), lr=1e-3)
             self.buffer_reposition = ReplayBuffer(100)
             self.repositionLogPath = "reposition_buffer_log.txt"
             self.repositionLogStep = 0
@@ -118,8 +120,10 @@ class Controller:
             #self.nav_tau = 0.005          
             self.dqn_navigation_main = DQNetwork(state_dim_nav, nav_action_dim).to(self.device)
             self.dqn_navigation_target = DQNetwork(state_dim_nav, nav_action_dim).to(self.device)
-            self.dqn_navigation_target.load_state_dict(self.dqn_navigation_main.state_dict())
-            self.opt_navigation = torch.optim.Adam(self.dqn_navigation_main.parameters(), lr=1e-4)
+            if self.dqn_navigation_main is not None and self.dqn_navigation_target is not None:
+                self.dqn_navigation_target.load_state_dict(self.dqn_navigation_main.state_dict())
+            if self.dqn_navigation_main is not None:
+                self.opt_navigation = torch.optim.Adam(self.dqn_navigation_main.parameters(), lr=1e-4)
             self.buffer_navigation = ReplayBuffer(50_000)
 
             hard_update(self.dqn_reposition_target, self.dqn_reposition_main)
@@ -506,7 +510,7 @@ class Controller:
         
 
         loss = F.smooth_l1_loss(q, y)
-        if self.opt_reposition is not None:
+        if self.opt_reposition is not None and self.dqn_reposition_main is not None:
             self.opt_reposition.zero_grad()
             loss.backward()
             nn_utils.clip_grad_norm_(
