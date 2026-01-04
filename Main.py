@@ -74,7 +74,7 @@ ctrl = Controller(
 )
 #print("initialized evs", ctrl.env)
 n_episodes = 20
-n_tests = 25
+n_tests = 0
 all_stats = []
 all_nav_loss = []
 all_repo_loss = [] # New list for repositioning
