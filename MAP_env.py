@@ -25,13 +25,14 @@ from Entities.GRID import Grid
 from Entities.ev import EV, EvState
 from Entities.Incident import Incident, IncidentStatus
 from Entities.Hospitals import Hospital
+from utils.Helpers import get_k_hop_directional_indices
 
 # Import services
 from services.dispatcher import DispatcherService
 from services.repositioning import RepositioningService
 from services.navigation import NavigationService
 
-
+DIRECTION_ORDER = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
 class MAP:
     """
     Environment orchestrator for emergency response simulation.
@@ -67,6 +68,9 @@ class MAP:
 
         # Build grid topology
         self.build_grids(self.lat_edges, self.lng_edges)
+        self.hop_maps = self.build_all_hop_maps(self.nRows, self.nCols)
+        self._build_rep_action_grids()
+
 
     # ========== GRID GEOMETRY & TOPOLOGY ==========
     
@@ -79,7 +83,7 @@ class MAP:
         for r in range(n_rows):
             for c in range(n_cols):
                 idx = r * n_cols + c
-                self.grids[idx] = Grid(index=idx)
+                self.grids[idx] = Grid(index=idx, loc=self.grid_center(idx))
 
         # Connect 8-neighbors
         for r in range(n_rows):
@@ -95,13 +99,32 @@ class MAP:
                             nbs.append(nr * n_cols + nc)
                 self.grids[idx].neighbours = nbs
 
+    def build_all_hop_maps(self, n_rows, n_cols) :
+        hop_maps = {}
+
+        for start_idx in range(n_rows * n_cols):
+            r0, c0 = divmod(start_idx, n_cols)
+            hops = {}
+
+            for r in range(n_rows):
+                for c in range(n_cols):
+                    dist = max(abs(r - r0), abs(c - c0))
+                    idx = r * n_cols + c
+                    hops.setdefault(dist, []).append(idx)
+
+            hop_maps[start_idx] = hops
+
+        return hop_maps
+
+    
+
     def index_to_rc(self, idx: int) -> Tuple[int, int]:
-        """Convert 1D grid index to (row, col) coordinates."""
+            
         return idx // self.nCols, idx % self.nCols
 
-    #def rc_to_index(self, r: int, c: int) -> int:
-        #"""Convert (row, col) coordinates to 1D grid index."""
-        #return r * self.nCols + c
+        #def rc_to_index(self, r: int, c: int) -> int:
+            #"""Convert (row, col) coordinates to 1D grid index."""
+            #return r * self.nCols + c
 
     def grid_center(self, idx: int) -> Tuple[float, float]:
         """Get the (lat, lng) center of a grid cell."""
@@ -109,7 +132,52 @@ class MAP:
         lat = (self.lat_edges[r] + self.lat_edges[r + 1]) / 2.0
         lng = (self.lng_edges[c] + self.lng_edges[c + 1]) / 2.0
         return lat, lng
+    
 
+    def _build_rep_action_grids(self) -> None:
+        n_rows = len(self.lat_edges) - 1
+        n_cols = len(self.lng_edges) - 1
+
+        offset_map = {
+            "N":  (1, 0),  "NE": (1, 1),  "E":  (0, 1),  "SE": (-1, 1),
+            "S":  (-1, 0), "SW": (-1, -1), "W":  (0, -1), "NW": (1, -1),
+        }
+
+        self.rep_action_grids = {}
+
+        for gi in self.grids.keys():
+            hop_map = self.hop_maps[gi]
+            ordered = []
+            One_hop = get_k_hop_directional_indices(
+                start_index=gi,
+                k=1,
+                n_rows=n_rows,
+                n_cols=n_cols,
+                direction_order=DIRECTION_ORDER,
+            )
+            # 1-hop direction-wise
+            for nb in One_hop:
+                if nb != -1:
+                    ordered.append(nb)
+
+            # 2-hop direction-wise
+            two_hop = get_k_hop_directional_indices(
+                start_index=gi,
+                k=2,
+                n_rows=n_rows,
+                n_cols=n_cols,
+                direction_order=DIRECTION_ORDER,
+            )
+            for nb in two_hop:
+                if nb != -1:
+                    ordered.append(nb)
+
+            # rest (hop >= 3)
+            for hop in sorted(hop_map.keys()):
+                if hop >= 3:
+                    ordered.extend(hop_map[hop])
+
+            self.rep_action_grids[gi] = ordered
     # ========== EV MANAGEMENT ==========
     
     def init_evs(self, seed: int = 42) -> None:
@@ -295,7 +363,7 @@ class MAP:
         See services.repositioning.RepositioningService.accept_reposition_offers()
         """
         #print("function call into function :(")
-        self.repositioner.accept_reposition_offers(self.evs, self.grids, self.incidents)
+        self.repositioner.accept_reposition_offers(self.evs, self.grids, self.nCols,self.next_grid_towards)
 
     '''def step_reposition(self) -> None:
         """
@@ -607,7 +675,7 @@ class MAP:
     def update_Repositioning(self, dt_minutes: float) -> None:
         for ev in self.evs.values():
             if ev.state == EvState.IDLE and ev.status == "Repositioning":
-                print("ev ",ev.id,"in grid",ev.gridIndex,"total idle time",ev.aggIdleTime,"total idle energy",ev.aggIdleEnergy)
+                #print("ev ",ev.id,"in grid",ev.gridIndex,"total idle time",ev.aggIdleTime,"total idle energy",ev.aggIdleEnergy)
                 if ev.gridIndex != ev.nextGrid and ev.nextGrid is not None:
                     ev.aggIdleEnergy += 0.12  # Fixed energy cost for repositioning from one grid to another
                     g = self.grids.get(ev.nextGrid)
@@ -615,7 +683,7 @@ class MAP:
                         #print("Entering this loop")
                         ev.add_idle(8) #g.estimate_eta_minutes(ev.location[0], ev.location[1], 40.0))
                     self.move_ev_to_grid(ev.id, ev.nextGrid)
-                    print("ev ",ev.id,"reached grid",ev.gridIndex,"total idle time",ev.aggIdleTime,"total idle energy",ev.aggIdleEnergy)
+                    #print("ev ",ev.id,"reached grid",ev.gridIndex,"total idle time",ev.aggIdleTime,"total idle energy",ev.aggIdleEnergy)
                     ev.nextGrid = None
                     ev.status = "Idle"  
             elif ev.state == EvState.IDLE and ev.status == "Idle":
@@ -658,23 +726,23 @@ class MAP:
         for ev in self.evs.values():
             if ev.state == EvState.BUSY and ev.status == "Navigation" and ev.assignedPatientId is not None and ev.nextGrid is not None:
                 g= self.grids.get(ev.nextGrid)
-                print("ev ",ev.id,"in grid",ev.gridIndex,"next grid",ev.nextGrid,"ev nav eta",ev.navEtaMinutes)
+                #print("ev ",ev.id,"in grid",ev.gridIndex,"next grid",ev.nextGrid,"ev nav eta",ev.navEtaMinutes)
                 if ev.gridIndex != ev.navdstGrid:
                         
                     if g is not None:
                         ev.navEtaMinutes -= g.estimate_eta_minutes(ev.location[0], ev.location[1], 40.0)
                         ev.aggBusyTime += g.estimate_eta_minutes(ev.location[0], ev.location[1], 40.0)
                     self.move_ev_to_grid(ev.id, ev.nextGrid)
-                    print("ev ",ev.id,"reached grid",ev.gridIndex,"total navigating time",ev.navEtaMinutes)
+                    #print("ev ",ev.id,"reached grid",ev.gridIndex,"total navigating time",ev.navEtaMinutes)
                 elif ev.gridIndex == ev.navdstGrid:
                     ev.status = "reached"
             elif ev.gridIndex == ev.navdstGrid and ev.navEtaMinutes <5.0 and ev.navTargetHospitalId is not None and ev.assignedPatientId is not None:
-                print("ev",ev.id,"Hospital id",ev.navTargetHospitalId)
+                #print("ev",ev.id,"Hospital id",ev.navTargetHospitalId)
                 if ev.status == "reached":
                     count =+1
                     h = self.hospitals[ev.navTargetHospitalId]  # Get the Hospital object
                     if ev.id not in h.evs_serving_priority_1 and ev.id not in h.evs_serving_priority_2 and ev.id not in h.evs_serving_priority_3:
-                        print("ev ",ev.id,"at hospital",h.id,"waiting to be served")
+                        #print("ev ",ev.id,"at hospital",h.id,"waiting to be served")
                         if ev.assignedPatientPriority == 1 and ev.id not in h.evs_serving_priority_1:
                             h.evs_serving_priority_1.append(ev.id)
                         elif ev.assignedPatientPriority == 2 and ev.id not in h.evs_serving_priority_2:
@@ -682,13 +750,16 @@ class MAP:
                         else:
                             h.evs_serving_priority_3.append(ev.id)
                     ev.navWaitTime -= 8 #h.estimate_eta_minutes(ev.location[0], ev.location[1], 40.0)
-                    print("ev ",ev.id,"at hospital",h.id,"total wait time",ev.navWaitTime)
+                    #print("ev ",ev.id,"at hospital",h.id,"total wait time",ev.navWaitTime)
                     if ev.navWaitTime <= 5.0:
                         inc_n = self.incidents.get(int(ev.assignedPatientId))
                         if inc_n is not None:
                             inc_n.mark_resolved()
-                            print("number of ticks it took to service",count)
+                            #print("number of ticks it took to service",count)
                             ev.release_incident()
+                            #ev.aggBusyTime = 0
+                            ev.aggIdleEnergy = 0
+                            ev.aggIdleTime = 0
                             g = self.grids.get(inc_n.gridIndex)
                             if g is not None:
                                 g.remove_incident(inc_n.id)

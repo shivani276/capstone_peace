@@ -243,7 +243,7 @@ def utility_dispatch_total(W_idle: float, W_kt: float, beta: float = 0.5, W_min:
   return U_D
 
 #Repositioning utility
-def utility_repositioning(W_idle: float, E_idle: float, alpha: float = 0.5, W_min: float = 0.0, W_max: float = W_MAX,
+'''def utility_repositioning(W_idle: float, E_idle: float, alpha: float = 0.5, W_min: float = 0.0, W_max: float = W_MAX,
     E_min: float = 0.0, E_max: float = E_MAX) -> float:
     #U_RW calcluation
     if W_idle < W_min:
@@ -262,7 +262,33 @@ def utility_repositioning(W_idle: float, E_idle: float, alpha: float = 0.5, W_mi
     #overall U_R
     alpha=0.5
     U_R = alpha * U_RW + (1.0-alpha)*U_RE
-    return U_R
+    return U_R'''
+def utility_repositioning(
+    y_igp_t: float,
+    h_ggp: float,
+    eIdle: float,
+    wIdle: float,
+    beta: float,
+    eMax: float,
+    wMax: float,
+) -> float:
+    y = float(y_igp_t)
+    h = float(h_ggp)
+    e = float(eIdle)
+    w = float(wIdle)
+    b = float(beta)
+    eDen = float(eMax)
+    wDen = float(wMax)
+
+    gain = 0.0 if h <= 0.0 else (y / h)
+
+    eTerm = 0.0 if eDen <= 0.0 else (e / eDen)
+    wTerm = 0.0 if wDen <= 0.0 else (w / wDen)
+
+    cost = (b * eTerm) + ((1.0 - b) * wTerm)
+
+    return gain - cost
+
 
 ''' 
 #Testing
@@ -359,3 +385,47 @@ def travel_minutes(lat1: float, lon1: float, lat2: float, lon2: float,kmph = np.
     """ETA in minutes at constant average speed."""
     km = haversine_km(lat1, lon1, lat2, lon2)
     return 60.0 * km / max(kmph, 1e-6)
+
+def get_ordered_grids_by_hops(hop_map):
+    ordered = []
+
+    for hop in sorted(hop_map.keys()):
+        if hop == 0:
+            continue
+        ordered.extend(hop_map[hop])
+
+    return ordered
+
+def get_k_hop_directional_indices(
+    start_index: int,
+    k: int,
+    n_rows: int,
+    n_cols: int,
+    direction_order: list[str],
+) -> list[int]:
+    r0, c0 = divmod(start_index, n_cols)
+    out = []
+    offset_map = {
+    "N":  (1, 0),  "NE": (1, 1),  "E":  (0, 1),  "SE": (-1, 1),
+    "S":  (-1, 0), "SW": (-1, -1),"W":  (0, -1), "NW": (1, -1),
+    }
+
+    
+    for d in direction_order:
+        dr, dc = offset_map[d]
+        r = r0 + k * dr
+        c = c0 + k * dc
+
+        if r < 0 or r >= n_rows or c < 0 or c >= n_cols:
+            out.append(-1)
+        else:
+            out.append(r * n_cols + c)
+
+    return out
+
+
+def hop_distance(g_from: int, g_to: int, n_cols: int) -> int:
+    r1, c1 = divmod(g_from, n_cols)
+    r2, c2 = divmod(g_to, n_cols)
+    return max(abs(r1 - r2), abs(c1 - c2))
+
