@@ -18,7 +18,8 @@ from utils.Helpers import (
     W_MIN, W_MAX, E_MIN, E_MAX,
     utility_navigation, load_calls, get_k_hop_directional_indices
 )
-
+from utils.Helpers import compute_arrival_rates_and_mu
+from services.repositioning import RepositioningService
 from DQN import DQNetwork, ReplayBuffer
 print("controler loaded")
 DIRECTION_ORDER = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
@@ -44,6 +45,7 @@ class Controller:
         self.ticks_per_ep = ticks_per_ep
         self.dqn_rep_test = None
         self.dqn_nav_test = None
+        self.repositioning_service = RepositioningService()
         self.rng = random.Random(seed)
 
         # agent params
@@ -294,42 +296,6 @@ class Controller:
 
     #========================= ACTION =================================#
 
-    '''def _select_action(self, state_vec: list[float], gi: int) -> int:
-        if getattr(self, "test_mode", False):
-            neighbours = self._get_direction_neighbors_for_index(gi)
-            valid = [gi] + [nb for nb in neighbours if nb != -1]
-            return self.rng.choice(valid) if valid else gi
-
-        if self.dqn_reposition_main is None:
-            neighbours = self._get_direction_neighbors_for_index(gi)
-            valid = [gi] + [nb for nb in neighbours if nb != -1]
-            return self.rng.choice(valid) if valid else gi
-
-        neighbours = self._get_direction_neighbors_for_index(gi)  # len 8
-        valid_mask = [1]  # slot 0 (stay)
-        for nb_idx in neighbours:
-            valid_mask.append(1 if nb_idx != -1 else 0)
-        self.epsilon = self.epsilon_scheduler.value(self.global_step)
-        #print("epsilon in rep",self.epsilon)
-        if self.rng.random() < self.epsilon:
-            valid_slots = [i for i, m in enumerate(valid_mask) if m == 1]
-            slot = self.rng.choice(valid_slots) if valid_slots else 0
-        else:
-            s = torch.tensor(state_vec, dtype=torch.float32, device=self.device).unsqueeze(0)
-            q = self.dqn_reposition_main(s).detach().cpu().numpy().ravel()
-            #print("q value",q)
-            for i, m in enumerate(valid_mask):
-                if m == 0:
-                    q[i] = -1e9
-            slot = int(np.argmax(q))
-        #self.global_step += 1
-
-        if slot == 0:
-            return gi  # stay
-        else:
-            dir_index = slot - 1
-            nb_idx = neighbours[dir_index]
-            return nb_idx if nb_idx != -1 else gi'''
     def _select_action(self, state_vec: list[float], gi: int) -> int:
         grid_ids = sorted(self.env.grids.keys())  # constant order, size N
         n_actions = 1 + len(grid_ids)             # slot 0 + all grids
@@ -403,80 +369,7 @@ class Controller:
 
 
     #================== REPOSITION TRAIN ======================#
-    '''def _train_reposition(
-    self,
-    batch_size: int = 64,
-    gamma: float = 0.99,):
-        self.repo_tau = 0.005
-        
-
-        self.repo_target_hard_update = 2000
-        
-        if len(self.buffer_reposition) < batch_size:
-            return
-
-        # ---- Sample batch ----
-        s, a, r, s2, done = self.buffer_reposition.sample(
-            batch_size,
-            device=self.device
-        )
-
-        # ---- Sanity checks ----
-        assert self.dqn_reposition_main is not None
-        assert self.dqn_reposition_target is not None
-        assert self.opt_reposition is not None
-
-        # ---- Q(s,a) from MAIN ----
-        q_sa = (
-            self.dqn_reposition_main(s)
-            .gather(1, a.unsqueeze(1))
-            .squeeze(1)
-        )
-
-        # ---- TD target from TARGET ----
-        with torch.no_grad():
-            q_next = self.dqn_reposition_target(s2).max(dim=1)[0]
-            q_next[done == 1.0] = 0.0
-            target = r + gamma * q_next
-
-        # ---- Loss ----
-        #loss = F.mse_loss(q_sa, target)
-        loss = F.smooth_l1_loss(q_sa, target)  # Huber (optional)
-
-        # ---- Main network update (θ_m) ----
-        self.opt_reposition.zero_grad()
-        loss.backward()
-        self.opt_reposition.step()
-
-        # ---- Bookkeeping ----
-        self.ep_repo_losses.append(loss.item())
-        self.rep_step += 1
-
-        # ---- HARD target update ----
-        if self.rep_step % self.repo_target_hard_update == 0:
-            self.dqn_reposition_target.load_state_dict(
-                self.dqn_reposition_main.state_dict()
-            )
-
-        # ---- SOFT (Polyak) target update ----
-        #tau = self.repo_tau  # e.g. 0.995
-        tau = 0.995
-        with torch.no_grad():
-            for p_t, p in zip(
-                self.dqn_reposition_target.parameters(),
-                self.dqn_reposition_main.parameters()
-            ):
-                # θ̂ ← τ θ̂ + (1 − τ) θ
-                p_t.data.mul_(tau)
-                p_t.data.add_((1.0 - tau) * p.data)
-
-        if self.rep_step % 500 == 0:
-            print(
-                f"[Controller] REPOSITION train step={self.rep_step} "
-                f"loss={loss.item():.4f}"
-            )'''
-
-
+    ''' 
     def _train_reposition(self, batch_size: int = 64, gamma: float = 0.99) -> None:
                
         if len(self.buffer_reposition) < batch_size:
@@ -551,7 +444,7 @@ class Controller:
                 f"[Controller] Reposition train step={self.rep_step} "
                 f"loss={loss.item():.4f}"
             )
-
+    '''
     #===================== NAVIGATION TRAIN ==================#
 
     def _train_navigation(self, batch_size: int = 64, gamma: float = 0.99):
@@ -608,57 +501,7 @@ class Controller:
                 f"[Controller] NAV train step={self.nav_step} "
                 f"loss={loss.item():.4f}"
             )
-
-    
-    '''def _train_navigation(self, batch_size: int = 64, gamma: float = 0.99):
-        
-        if len(self.buffer_navigation) < 2000:
-            return
-        
-        try:
-            s, a, r, s2, done,mask = self.buffer_navigation.sample(batch_size, device=self.device)
-        except TypeError:
-            batch = self.buffer_navigation.sample(batch_size, device=self.device)
-            s   = torch.stack([torch.as_tensor(x, dtype=torch.float32, device=self.device) for x in batch[0]])
-            a   = torch.as_tensor(batch[1], dtype=torch.long,   device=self.device)
-            r   = torch.as_tensor(batch[2], dtype=torch.float32, device=self.device)
-            s2  = torch.stack([torch.as_tensor(x, dtype=torch.float32, device=self.device) for x in batch[3]])
-            done= torch.as_tensor(batch[4], dtype=torch.float32, device=self.device)
-
-        with torch.no_grad():
-            if self.dqn_navigation_target is not None:
-                q2 = self.dqn_navigation_target(s2).max(dim=1).values
-            y  = r + gamma * (1.0 - done) * q2
-
-        if self.dqn_navigation_main is not None:
-            q = self.dqn_navigation_main(s).gather(1, a.view(-1, 1)).squeeze(1)
-
-        loss = F.smooth_l1_loss(q, y)
-        if self.opt_navigation is not None:
-            self.opt_navigation.zero_grad()
-            loss.backward()
-            nn_utils.clip_grad_norm_(
-                self.dqn_navigation_main.parameters(),
-                max_norm=10.0
-            )
-            self.opt_navigation.step()
-        
-        # --- FIX: TRACK LOSS FOR PLOTTING ---
-        self.ep_nav_losses.append(loss.item())
-
-        self.nav_step += 1
-        self.nav_tau = 0.005
-        self.nav_target_update = 2000
-        if self.nav_step % self.nav_target_update == 0:
-            if self.dqn_navigation_target is not None and self.dqn_navigation_main is not None:
-                with torch.no_grad():
-                    for p_t, p in zip(self.dqn_navigation_target.parameters(),
-                                      self.dqn_navigation_main.parameters()):
-                        p_t.data.mul_(1.0 - self.nav_tau).add_(self.nav_tau * p.data)
-
-        if self.nav_step % 500 == 0:
-            print(f"[Controller] NAV train step={self.nav_step} loss={loss.item():.4f}")'''
-    
+    ''' 
     def _log_reposition_push(self, t, evId, s, a, r, s2, done):
         try:
             sList = s.detach().cpu().tolist() if hasattr(s, "detach") else list(s)
@@ -682,6 +525,7 @@ class Controller:
             f.write(json.dumps(rec) + "\n")
 
         self.repositionLogStep += 1
+    ''' 
             
     # ---------- episode reset ----------
     def _reset_episode(self) -> None:
@@ -782,7 +626,7 @@ class Controller:
                 inc.responseToHospitalMinutes = None
             try:
                 self._spawned_incidents[inc.id] = inc
-                #print("incident id",inc)
+                print("incident id",inc)
                 #print(f"incident stats",inc.to_dict)
             except Exception:
                 pass
@@ -829,10 +673,17 @@ class Controller:
                 idle_transitions.append((ev,state_vec,a_gi))
                 
         # 3) Accept offers
-        self.env.accept_reposition_offers()  #next grid changes
+        #self.env.accept_reposition_offers()  #next grid changes
         #for ev in self.env.evs.values():
             #print("ev",ev.id,"reward",ev.sarns["reward"],"status",ev.status)
-        
+        #Paper's repositioning algo
+        lambda_dict, mu_dict = compute_arrival_rates_and_mu(self.env.grids)
+        self.repositioning_service.urgency_based_redeployment(
+            evs=self.env.evs,
+            grids=self.env.grids,
+            lambda_dict=lambda_dict,
+            mu_dict=mu_dict
+        )
         # --- FIX: REMOVED DEBUG_DISPATCH ARGUMENT ---
         dispatches = self.env.dispatch_gridwise(beta=0.5)
         busy_transitions = []
@@ -956,7 +807,7 @@ class Controller:
             valid_mask_s2 = torch.as_tensor(valid_mask_s2,dtype =torch.float32,device=self.device).view(-1)
             sr_t = torch.as_tensor(sr_t, dtype=torch.float32, device=self.device).view(-1)
             st_2_r = torch.as_tensor(st_2_r, dtype=torch.float32, device=self.device).view(-1) 
-            self._log_reposition_push(t, ev.id, sr_t, ar_t, rr_t, st_2_r, doner_t)
+#            self._log_reposition_push(t, ev.id, sr_t, ar_t, rr_t, st_2_r, doner_t)
             self.buffer_reposition.push(sr_t, ar_t, rr_t, st_2_r, doner_t,valid_mask_s2 )
             #print("rep rewards",rr_t,"evid",emv.id)
             #print("Repositioning transition pushed:",  ev.id, "state",sr_t,"action",ar_t,"next state",st_2_r,"reward",rr_t,"done",doner_t,"\n")

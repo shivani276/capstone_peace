@@ -83,9 +83,14 @@ class MAP:
         for r in range(n_rows):
             for c in range(n_cols):
                 idx = r * n_cols + c
-                self.grids[idx] = Grid(index=idx, loc=self.grid_center(idx))
+                g= Grid(index=idx, loc = None)
+                lat_c = (lat_edges[r] + lat_edges[r + 1]) / 2.0
+                lng_c = (lng_edges[c] + lng_edges[c + 1]) / 2.0
+                g.center1d = (lat_c, lng_c)
+                #self.grids[idx] = Grid(index=idx, loc=self.grid_center(idx))
+                self.grids[idx] = g
 
-        # Connect 8-neighbors
+        # Connect 8-neighbours
         for r in range(n_rows):
             for c in range(n_cols):
                 idx = r * n_cols + c
@@ -407,7 +412,7 @@ class MAP:
             self.grids,
             self.evs,
             self.incidents,
-            beta=beta,
+            #beta=beta,
         )
 
     def calculate_eta_plus_wait(self, ev, hospital: Hospital) -> float:
