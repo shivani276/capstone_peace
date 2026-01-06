@@ -269,25 +269,34 @@ def utility_repositioning(
     eIdle: float,
     wIdle: float,
     beta: float,
-    eMax: float,
-    wMax: float,
 ) -> float:
     y = float(y_igp_t)
     h = float(h_ggp)
     e = float(eIdle)
     w = float(wIdle)
     b = float(beta)
-    eDen = float(eMax)
-    wDen = float(wMax)
+    eDen = float(E_MAX)
+    wDen = float(W_MAX)
 
+    if w == 0.2:
+        print(w)
     gain = 0.0 if h <= 0.0 else (y / h)
 
     eTerm = 0.0 if eDen <= 0.0 else (e / eDen)
     wTerm = 0.0 if wDen <= 0.0 else (w / wDen)
+    
 
-    cost = (b * eTerm) + ((1.0 - b) * wTerm)
+    if w > wDen or e > eDen:
+        return -1.0
 
-    return gain - cost
+    else:
+        cost = (b * eTerm) + ((1.0 - b) * wTerm)
+
+    
+
+        reward = gain - cost
+
+        return reward
 
 
 ''' 

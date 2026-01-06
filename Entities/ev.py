@@ -39,6 +39,8 @@ class EV:
         self.assignedPatientId = patient_id
         #print("asgined patient",self.assignedPatientId,"to ev",self.id)
         #self.state = EvState.BUSY
+        self.aggIdleTime = 0.0
+        self.aggIdleEnergy = 0.0
         self.status = "Dispatching"
         
         
