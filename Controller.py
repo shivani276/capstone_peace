@@ -882,7 +882,7 @@ class Controller:
                         elif ev.assignedPatientPriority == 1:
                             H_MIN = 10.0
                         # R_busy is the total wait (response + hospital) time
-                        print("inc wait",inc.waitTime,"mean wait",mean_wait,"inc id",inc.id)
+                        #print("inc wait",inc.waitTime,"mean wait",mean_wait,"inc id",inc.id)
                         R_busy = inc.waitTime + mean_wait
 
                         ev.sarns["reward"] = utility_navigation(R_busy, H_min= H_MIN, H_max=inc.responseToHospitalMinutes)

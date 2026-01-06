@@ -39,7 +39,7 @@ class ReplayBuffer:
         
         batch = random.sample(self.buffer, batch_size)
 
-        states, actions, rewards, next_states, dones,valid_mask = zip(*batch)
+        states, actions, rewards, next_states, dones, valid_mask = zip(*batch)
         rewards_clean = [0.0 if r is None else float(r) for r in rewards]
         S  = torch.stack(states).to(device)
         A  = torch.tensor(actions, dtype=torch.long, device=device)
