@@ -2,7 +2,7 @@
 import matplotlib.pyplot as plt
 import pandas as pd
 from MAP_env import MAP
-from controller_copy import Controller
+from Controller import Controller
 import numpy as np
 # Initialize Environment
 env = MAP("Data/grid_config_2d.json")
@@ -15,10 +15,10 @@ ctrl = Controller(
     env,
     ticks_per_ep=180,
     #csv_path="D:\\Downloads\\5Years_SF_calls_latlong.csv"
-    csv_path="Data/Fire_Department_and_Emergency_Medical_Services_Dispatched_Calls_for_Service_20251208.csv"
+    csv_path="Data/Fire_Department_and_Emergency_Medical_Services_Dispatched_Calls_for_Service_20251208_with_index.csv"
 )
 
-n_episodes = 1
+n_episodes = 5
 all_wait_times = []
 stats_history=[]
 all_incident_data = []
@@ -34,19 +34,7 @@ for ep in range(n_episodes):
     stats = ctrl.run_training_episode(ep)
     stats_history.append(stats)
     daily_data = []
-    for inc in ctrl._spawned_incidents.values():
-        # Get the wait time (filtering out the 0.0s if needed)
-        w = inc.get_wait_minutes()
-        
-        # Get the priority
-        p = inc.priority
-
-        if w is not None:
-            daily_data.append({
-                "Episode": ep,
-                "Wait_Time": w,
-                "Priority": p
-            })
+    
             
     # Add to master list    
     all_incident_data.extend(daily_data)
