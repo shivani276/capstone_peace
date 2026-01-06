@@ -35,10 +35,10 @@ class RepositioningService:
 
             if int(dst) == int(v.gridIndex):
                 v.sarns["reward"] = utility_repositioning(
-                    0, 0, v.aggIdleTime, v.aggIdleEnergy, 0.5, E_MAX, W_MAX
+                    0, 0, v.aggIdleEnergy, v.aggIdleTime, 0.5
                 )
 
-        applicable_evs = []
+        applicable_evs: List[EV] = []
         for g_idx, g in grids.items():
             
             if g.imbalance < 0:
@@ -46,19 +46,26 @@ class RepositioningService:
                     ev_obj = evs[ev_id]
                     if ev_obj.state == EvState.IDLE:
                         applicable_evs.append(ev_obj)
-            elif g.imbalance > 0:     
+            else:
+                continue
+        offers_g = []
+        for g_idx, g in grids.items():       
+
+            if g.imbalance > 0:     
             # 2) Build offers_g: offers from neighbour EVs that want THIS grid
-                offers_g = []   # list of tuples (utility, ev_id, ev_obj)
+                   # list of tuples (utility, ev_id, ev_obj)
                 for v in applicable_evs:
                     dst = v.sarns.get("action")
                     #u = v.sarns.get("utility")
                     c = v.reposition_cost(0.5,E_MAX,W_MAX)  # cost to go to g_idx
                     if dst is None or c is None:
                             continue
-                    if dst == g_idx:
+                    if dst == g_idx and v.gridIndex != g_idx:
                         offers_g.append((float(c), v.id, v))
+                        #print(offers_g)
 
                 offers_g.sort(key=lambda x: x[0], reverse=False)
+                #print(offers_g[0][2])
                 # 4) Capacity: how many EVs this grid "needs"
                 imbalance = g.imbalance
                 cap = int(max(0, imbalance))
@@ -66,20 +73,25 @@ class RepositioningService:
                 y_i_g_t =0
                 while cap > 0 and offers_g:
                     c_val, ev_id, v_obj = offers_g.pop(0)
+                    #print(v_obj)
                     v_obj.status = "Repositioning"
                     y_i_g_t = 1
                     h_ggp = hop_distance(v_obj.gridIndex, g_idx, n_cols)
                     v_obj.sarns["reward"] = utility_repositioning(
-                        y_i_g_t, h_ggp, v_obj.aggIdleTime, v_obj.aggIdleEnergy, 0.5, E_MAX, W_MAX
+                        y_i_g_t, h_ggp, v_obj.aggIdleEnergy, v_obj.aggIdleTime, 0.5
                     )
+                    #print("Reward for EV ", v_obj.id, " to go to grid ", g_idx, " is ", v_obj.sarns["reward"])
                     v_obj.nextGrid = function(v_obj.gridIndex, g_idx)
                     accepted += 1
                     cap -= 1
-                for c_val, ev_id, v in offers_g:
-                    h_ggp = hop_distance(v.gridIndex, g_idx, n_cols)
-                    v.sarns["reward"] = utility_repositioning(
-                        0, h_ggp, v.aggIdleTime, v.aggIdleEnergy, 0.5, E_MAX, W_MAX
-                    )
+            else:
+                continue
+        # 5) For unaccepted offers, set reward to stay       
+        for c_val, ev_id, v in offers_g:
+            h_ggp = hop_distance(v.gridIndex, g_idx, n_cols)
+            v.sarns["reward"] = utility_repositioning(
+                0, h_ggp, v.aggIdleEnergy, v.aggIdleTime, 0.5
+            )
         
 
     '''def execute_repositions(

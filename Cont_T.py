@@ -6,22 +6,25 @@ import pandas as pd
 import torch
 import torch.nn.functional as F
 import numpy as np
+import json
+import torch.nn.utils as nn_utils
 
 from MAP_env import MAP
-from Entities.ev import EvState
+from Entities.ev import EV, EvState
 from Entities.Incident import IncidentStatus
 from utils.Epsilon import EpsilonScheduler, hard_update, soft_update
 from utils.Helpers import (
     build_daily_incident_schedule,
     point_to_grid_index,
     W_MIN, W_MAX, E_MIN, E_MAX,
-    utility_navigation, load_calls
+    utility_navigation, load_calls, get_k_hop_directional_indices
 )
 
 from DQN import DQNetwork, ReplayBuffer
 print("controler loaded")
 DIRECTION_ORDER = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
 NAV_K = 8
+
 
 class Controller:
     def __init__(
@@ -34,15 +37,12 @@ class Controller:
         lat_col: Optional[str] = None,
         lng_col: Optional[str] = None,
         wkt_col: Optional[str] = "case_location",
-        test_mode: bool = False,
-        #test_mode: bool = False,
     ):
         self.env = env
-        self.test_mode = test_mode
+        
         #print("[DEBUG] hospitals at Controller init:", len(self.env.hospitals))
         self.ticks_per_ep = ticks_per_ep
-        self.dqn_rep_test = None
-        self.dqn_nav_test = None
+
         self.rng = random.Random(seed)
 
         # agent params
@@ -53,72 +53,58 @@ class Controller:
             decay_steps=5000
         )
         self.epsilon = 1.0 
-        self.busy_fraction = 0.5
+
 
         # Track losses for plotting
         self.ep_nav_losses = [] 
         self.ep_repo_losses = []
+        self.repositionLogPath = "reposition_buffer_log.txt"
+        self.repositionLogStep = 0
 
         # DQNs 
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        # ----- Repositioning state, action dims -----------
+        evAny = next(iter(self.env.evs.values()))
+        state_dim = len(self._build_state(evAny))
+        print("Reposition state dim:", state_dim)
+
+        # sanity: must be constant for all EVs
+        for ev in self.env.evs.values():
+            if len(self._build_state(ev)) != state_dim:
+                raise RuntimeError("reposition state_dim is not constant across EVs")
+        action_dim = len(self.env.grids)
+        print("Reposition action dim:", action_dim)
+
+        self.dqn_reposition_main = DQNetwork(state_dim, action_dim).to(self.device)
+        self.dqn_reposition_target = DQNetwork(state_dim, action_dim).to(self.device)
+        self.dqn_reposition_target.load_state_dict(self.dqn_reposition_main.state_dict())
+        self.opt_reposition = torch.optim.Adam(self.dqn_reposition_main.parameters(), lr=1e-3)
+        self.buffer_reposition = ReplayBuffer(10000)
         
-        if getattr(self, 'test_mode', False):
-            class DummyBuffer:
-                def push(self, *args, **kwargs): return None
-                def sample(self, *args, **kwargs): raise RuntimeError("DummyBuffer has no samples")
-                def __len__(self): return 0
 
-            self.dqn_reposition_main = None
-            self.dqn_reposition_target = None
-            self.opt_reposition = None
-            self.buffer_reposition = DummyBuffer()
-            
-            self.dqn_navigation_main = None
-            self.dqn_navigation_target = None
-            self.opt_navigation = None
-            self.buffer_navigation = DummyBuffer()
-        else:
-            state_dim = 12
-            action_dim = 9
-            self.dqn_reposition_main = DQNetwork(state_dim, action_dim).to(self.device)
-            self.dqn_reposition_target = DQNetwork(state_dim, action_dim).to(self.device)
-            self.dqn_reposition_target.load_state_dict(self.dqn_reposition_main.state_dict())
-            self.opt_reposition = torch.optim.Adam(self.dqn_reposition_main.parameters(), lr=1e-3)
-            self.buffer_reposition = ReplayBuffer(100)
-            #state_dim_nav = max(1, len(self.env.hospitals))
-            #action_dim_nav = max(1, action_dim_nav)
-            #state_dim_nav = max(1, 78)
-            #action_dim_nav = 4
 
-            # --- NAV: one feature and one action per hospital grid ---
-            self.hc_grids = sorted({h.gridIndex for h in self.env.hospitals.values()})
-            
-            nav_action_dim = len(self.hc_grids)
+        # --- NAV: one feature and one action per hospital grid ---
+        self.hc_grids = sorted({h.gridIndex for h in self.env.hospitals.values()})
+        
+        nav_action_dim = len(self.hc_grids)
 
-            if nav_action_dim == 0:
-                # degenerate case, but keep network alive
-                self.hc_grids = [0]
-                nav_action_dim = 1
+        state_dim_nav = nav_action_dim
+        self.nav_step = 0
+        self.rep_step = 0
+        self.nav_target_update = 500  
+        self.nav_tau = 0.005          
+        self.dqn_navigation_main = DQNetwork(state_dim_nav, nav_action_dim).to(self.device)
+        self.dqn_navigation_target = DQNetwork(state_dim_nav, nav_action_dim).to(self.device)
+        self.dqn_navigation_target.load_state_dict(self.dqn_navigation_main.state_dict())
+        self.opt_navigation = torch.optim.Adam(self.dqn_navigation_main.parameters(), lr=1e-3)
+        self.buffer_navigation = ReplayBuffer(10000)
+        self.repTrainStep = 0
 
-            state_dim_nav = nav_action_dim
-            self.nav_step = 0
-            self.rep_step = 0
-            self.nav_target_update = 500  
-            self.nav_tau = 0.005          
-            self.dqn_navigation_main = DQNetwork(state_dim_nav, nav_action_dim).to(self.device)
-            self.dqn_navigation_target = DQNetwork(state_dim_nav, nav_action_dim).to(self.device)
-            self.dqn_navigation_target.load_state_dict(self.dqn_navigation_main.state_dict())
-            self.opt_navigation = torch.optim.Adam(self.dqn_navigation_main.parameters(), lr=1e-3)
-            self.buffer_navigation = ReplayBuffer(100)
+        hard_update(self.dqn_reposition_target, self.dqn_reposition_main)
+        hard_update(self.dqn_navigation_target, self.dqn_navigation_main)
 
-            hard_update(self.dqn_reposition_target, self.dqn_reposition_main)
-            hard_update(self.dqn_navigation_target, self.dqn_navigation_main)
 
-        if not getattr(self, 'test_mode', False):
-            #print("[Controller] DQNs initialised.")
-            print("  Device:", self.device)
-        else:
-            print("[Controller] test_mode enabled: skipping heavy DQN initialisation")
+        print("[Controller] DQNs initialised.")
         print("number of grids with hcs",len(self.hc_grids))
         self.df = pd.read_csv(csv_path)
         self.time_col = time_col
@@ -141,6 +127,8 @@ class Controller:
         self.pretty = True
         self.debug_dispatch = False
 
+        self.reward = []
+
         #CHECK REPOSITIONING
         # Episode-level history of repositioning performance
         self.idle_time_history: list[float] = []
@@ -158,11 +146,6 @@ class Controller:
         self.q_rep_history: list[float] = []
         self.q_nav_history: list[float] = []
 
-
-
-
-
-    
     def _get_direction_neighbors_for_index(self, index: int) -> list[int]:
         n_rows = len(self.env.lat_edges) - 1
         n_cols = len(self.env.lng_edges) - 1
@@ -200,22 +183,44 @@ class Controller:
 
         # own imbalance
         imb_self = float(g.calculate_imbalance(self.env.evs, self.env.incidents))
+        #print("imbalance self",imb_self,"ev",ev.id,"in grid",gi)
 
         # neighbour imbalances in fixed direction order
-        neigh_indices = self._get_direction_neighbors_for_index(gi)
-        neigh_imbs: list[float] = []
-        for nb_idx in neigh_indices:
-            if nb_idx == -1:
-                neigh_imbs.append(0.0)
+        hop_maps = self.env.get_all_hop_distances(start_index=gi)
+        state: list[float] = []
+
+        # 1-hop (direction-wise)
+        oneHop=hop_maps.get(1,[])
+        for nb in oneHop:
+            if nb == -1:
+                state.append(0.0)
             else:
-                nb_g = self.env.grids[nb_idx]
-                nb_imb = float(nb_g.calculate_imbalance(self.env.evs, self.env.incidents))
-                neigh_imbs.append(nb_imb)
+                
+                state.append(self.env.grids[nb].imbalance)
+
+        # 2-hop (direction-wise, relative to gi)
+        twoHop=hop_maps.get(2,[])
+        for nb in twoHop:
+            if nb == -1:
+                state.append(0.0)
+            else:
+                state.append(self.env.grids[nb].imbalance)
+
+        # rest (all hops >= 3, any order)
+        beyond2 = []
+        for dist, idxList in hop_maps.items():
+            if dist >2 :
+                beyond2.extend(idxList)
+        for nb in beyond2:
+            if nb == -1:
+                state.append(0.0)
+            else:
+                state.append(self.env.grids[nb].imbalance)
 
         vec: list[float] = []
         vec.append(float(gi))
         vec.append(imb_self)
-        vec.extend(neigh_imbs)
+        vec.extend(state)
         vec.append(float(ev.aggIdleTime))
         vec.append(float(ev.aggIdleEnergy))
         return vec
@@ -257,38 +262,41 @@ class Controller:
     #========================= ACTION =================================#
 
     def _select_action(self, state_vec: list[float], gi: int) -> int:
-        if getattr(self, "test_mode", False):
-            neighbours = self._get_direction_neighbors_for_index(gi)
-            valid = [gi] + [nb for nb in neighbours if nb != -1]
-            return self.rng.choice(valid) if valid else gi
+        grid_ids = sorted(self.env.grids.keys())  # constant order, size N
+        n_actions = len(grid_ids)             # slot 0 + all grids
 
-        if self.dqn_reposition_main is None:
-            neighbours = self._get_direction_neighbors_for_index(gi)
-            valid = [gi] + [nb for nb in neighbours if nb != -1]
-            return self.rng.choice(valid) if valid else gi
+        valid_mask = [1]  # slot 0 stay always valid
+        for gid in grid_ids:
+            if gid == gi:
+                valid_mask.append(1)  # can always stay in same grid
+            else:
+                valid_mask.append(1 if self.env.grids[gid].imbalance > 0 else 0)
 
-        neighbours = self._get_direction_neighbors_for_index(gi)  # len 8
-        valid_mask = [1]  # slot 0 (stay)
-        for nb_idx in neighbours:
-            valid_mask.append(1 if nb_idx != -1 else 0)
+        valid_slots = [i for i, m in enumerate(valid_mask) if m == 1]
+        if not valid_slots:
+            return gi
+
+
+        self.epsilon = self.epsilon_scheduler.value(self.global_step)
 
         if self.rng.random() < self.epsilon:
-            valid_slots = [i for i, m in enumerate(valid_mask) if m == 1]
-            slot = self.rng.choice(valid_slots) if valid_slots else 0
+            slot = self.rng.choice(valid_slots)
         else:
             s = torch.tensor(state_vec, dtype=torch.float32, device=self.device).unsqueeze(0)
             q = self.dqn_reposition_main(s).detach().cpu().numpy().ravel()
+
             for i, m in enumerate(valid_mask):
                 if m == 0:
                     q[i] = -1e9
+
             slot = int(np.argmax(q))
+            if slot not in valid_slots:
+                slot = self.rng.choice(valid_slots)
 
         if slot == 0:
-            return gi  # stay
-        else:
-            dir_index = slot - 1
-            nb_idx = neighbours[dir_index]
-            return nb_idx if nb_idx != -1 else gi
+            return gi
+
+        return grid_ids[slot - 1]
 
     
     def _select_nav_action(self, state_vec: list[float]) -> int:
@@ -299,7 +307,11 @@ class Controller:
             return -1  # no hospital grids to choose from
 
         # 1) Exploration: random slot
+        self.epsilon = self.epsilon_scheduler.value(self.global_step)
+        
+        #print("epsilon in nav",self.epsilon)
         if self.rng.random() < self.epsilon:
+            
             return self.rng.randint(0, n_actions - 1)
 
         # 2) Exploitation: DQN greedy
@@ -307,107 +319,152 @@ class Controller:
         # shape: (1, n_actions)
         if self.dqn_navigation_main is not None:
             q = self.dqn_navigation_main(s).detach().cpu().numpy().ravel()
-        # q[i] is the Q-value for choosing slot i (i.e. grid_ids[i])
+        
 
         slot = int(np.argmax(q))
+
         # safety clamp, just in case
         if slot < 0:
             slot = 0
         elif slot >= n_actions:
             slot = n_actions - 1
+        
 
         return slot
 
+    def plot_rewards(self):
+        import matplotlib.pyplot as plt
 
+        plt.figure(figsize=(10, 5))
+        plt.plot(self.reward, label='Repositioning Rewards', color='orange')
+        ymin = min(self.reward)
+        ymax = max(self.reward)
+        step = (ymax - ymin) / 20   # 20 intervals
+
+        plt.yticks(np.arange(ymin, ymax + step, step))
+
+        plt.xlabel('Time Steps')
+        plt.ylabel('Reward')
+        plt.title('Repositioning Rewards Over Time')
+        plt.legend()
+        plt.grid(True)
+        plt.show()
     #================== REPOSITION TRAIN ======================#
+    def _train_reposition(
+    self,
+    batch_size: int = 64,
+    gamma: float = 0.95,):
+        
+        
 
-    def _train_reposition(self, batch_size: int = 64, gamma: float = 0.99) -> None:
+        
         if len(self.buffer_reposition) < batch_size:
             return
 
-        states, actions, rewards, next_states, dones = self.buffer_reposition.sample(
-            batch_size,
-            device=self.device
-        )
-        if self.dqn_reposition_main is not None:
-            q_values = self.dqn_reposition_main(states)
-        q_sa = q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
-
-        with torch.no_grad():
-            if self.dqn_reposition_target is not None:
-                q_next = self.dqn_reposition_target(next_states).max(1)[0]
-            target = rewards + gamma * (1.0 - dones) * q_next
-
-        loss = F.smooth_l1_loss(q_sa, target)
-
-        if self.opt_reposition is not None:
-            self.opt_reposition.zero_grad()
-            loss.backward()
-            self.opt_reposition.step()
-
-        self.ep_repo_losses.append(loss.item())
-        self.rep_step +=1
-        tau = 0.005
-        if self.dqn_reposition_target is not None and self.dqn_reposition_main is not None:
-            for t_param, o_param in zip(self.dqn_reposition_target.parameters(),
-                                        self.dqn_reposition_main.parameters()):
-                t_param.data.mul_(1.0 - tau).add_(tau * o_param.data)
-        if self.rep_step % 500 == 0:
-            print(f"[Controller] REPOSITIONING train step={self.rep_step} loss={loss.item():.4f}")
-    #===================== NAVIGATION TRAIN ==================#
-    def _train_navigation(self, batch_size: int = 64, gamma: float = 0.99):
-        if len(self.buffer_navigation) < batch_size:
-            return
-
         # ---- Sample batch ----
-        s, a, r, s2, done = self.buffer_navigation.sample(
+        batch = self.buffer_reposition.sample(
             batch_size,
             device=self.device
         )
+        s, a, r, s2, done = batch[0], batch[1], batch[2], batch[3], batch[4]
+        a = a.to(torch.long).view(-1)
+        r = r.to(torch.float32).view(-1)
+        done = done.to(torch.float32).view(-1)
 
-        # ---- Sanity checks (fail fast) ----
-        assert self.dqn_navigation_main is not None
-        assert self.dqn_navigation_target is not None
-        assert self.opt_navigation is not None
+        # ---- Sanity checks ----
+        assert self.dqn_reposition_main is not None
+        assert self.dqn_reposition_target is not None
+        assert self.opt_reposition is not None
 
-        # ---- Q(s,a) from MAIN network ----
+        # ---- Q(s,a) from MAIN ----
         q_sa = (
-            self.dqn_navigation_main(s)
+            self.dqn_reposition_main(s)
             .gather(1, a.unsqueeze(1))
             .squeeze(1)
         )
 
-        # ---- TD target from TARGET network ----
+        # ---- TD target from TARGET ----
         with torch.no_grad():
-            q_next = self.dqn_navigation_target(s2).max(dim=1)[0]
-            done = done.to(torch.bool)
-            target = r + gamma * (~done).float() * q_next
+            #q_next = self.dqn_reposition_target(s2).max(dim=1)[0]
+            net = self.dqn_reposition_target if self.dqn_reposition_target is not None else self.dqn_reposition_main
+            q2 = net(s2).max(dim=1).values
+            y = r + gamma * (1.0 - done) * q2
 
-        # ---- Loss & optimization ----
-        loss = F.smooth_l1_loss(q_sa, target)
+        # ---- Loss ----
+        #loss = F.mse_loss(q_sa, target)
+        #loss = F.smooth_l1_loss(q_sa, target)  # Huber (optional)
+        loss_fn = torch.nn.SmoothL1Loss()
+        loss = loss_fn(q_sa, y)
 
-        self.opt_navigation.zero_grad()
+        # ---- Main network update (θ_m) ----
+        self.opt_reposition.zero_grad()
         loss.backward()
-        self.opt_navigation.step()
+        self.opt_reposition.step()
 
         # ---- Bookkeeping ----
-        self.ep_nav_losses.append(loss.item())
-        self.nav_step += 1
+        self.ep_repo_losses.append(loss.item())
+        self.rep_step += 1
 
-        # ---- Soft target update ----
-        if self.nav_step % self.nav_target_update == 0:
-            with torch.no_grad():
-                for t_param, o_param in zip(
-                    self.dqn_navigation_target.parameters(),
-                    self.dqn_navigation_main.parameters()
-                ):
-                    t_param.data.mul_(1.0 - self.nav_tau).add_(self.nav_tau * o_param.data)
+        # ---- SOFT (Polyak) target update ----
+        tau = 0.005
+        with torch.no_grad():
+            for p_t, p in zip(self.dqn_reposition_target.parameters(),
+                            self.dqn_reposition_main.parameters()):
+                p_t.data.mul_(1.0 - tau)
+                p_t.data.add_(tau * p.data)
+                
 
-        if self.nav_step % 500 == 0:
+        '''if self.rep_step % 500 == 0:
             print(
-                f"[Controller] NAV train step={self.nav_step} "
+                f"[Controller] REPOSITION train step={self.rep_step} "
                 f"loss={loss.item():.4f}"
-            )
+            )'''
+
+
+
+    
+    def _train_navigation(self, batch_size: int = 64, gamma: float = 0.95):
+        
+        if len(self.buffer_navigation) < batch_size:
+            return
+        
+        try:
+            s, a, r, s2, done, mask = self.buffer_navigation.sample(batch_size, device=self.device)
+        except TypeError:
+            batch = self.buffer_navigation.sample(batch_size, device=self.device)
+            s   = torch.stack([torch.as_tensor(x, dtype=torch.float32, device=self.device) for x in batch[0]])
+            a   = torch.as_tensor(batch[1], dtype=torch.long,   device=self.device)
+            r   = torch.as_tensor(batch[2], dtype=torch.float32, device=self.device)
+            s2  = torch.stack([torch.as_tensor(x, dtype=torch.float32, device=self.device) for x in batch[3]])
+            done= torch.as_tensor(batch[4], dtype=torch.float32, device=self.device)
+
+        with torch.no_grad():
+            net = self.dqn_navigation_target if self.dqn_navigation_target is not None else self.dqn_navigation_main
+            q2 = net(s2).max(dim=1).values
+            y = r + gamma * (1.0 - done) * q2
+
+        if self.dqn_navigation_main is not None:
+            q = self.dqn_navigation_main(s).gather(1, a.view(-1, 1)).squeeze(1)
+
+        loss = F.smooth_l1_loss(q, y)
+        if self.opt_navigation is not None:
+            self.opt_navigation.zero_grad()
+            loss.backward()
+            self.opt_navigation.step()
+        
+        # --- FIX: TRACK LOSS FOR PLOTTING ---
+        self.ep_nav_losses.append(loss.item())
+
+        self.nav_step += 1
+        if self.nav_step % self.nav_target_update == 0:
+            if self.dqn_navigation_target is not None and self.dqn_navigation_main is not None:
+                with torch.no_grad():
+                    for p_t, p in zip(
+                    self.dqn_navigation_target.parameters(),
+                    self.dqn_navigation_main.parameters()):
+                        p_t.mul_(1 - self.nav_tau).add_(p, alpha=self.nav_tau)
+                        if self.nav_step % 500 == 0:
+                            '''print(f"[Controller] NAV train step={self.nav_step} loss={loss.item():.4f}")'''
 
     # ---------- episode reset ----------
     def _reset_episode(self) -> None:
@@ -452,28 +509,18 @@ class Controller:
         self.rng.shuffle(ev_list)
         all_idx = list(self.env.grids.keys())
         n_evs = len(ev_list)
-        n_busy_target = int(self.busy_fraction * n_evs)
+        #n_busy_target = int(self.busy_fraction * n_evs)
 
         for i, ev in enumerate(ev_list):
             gi = self.rng.choice(all_idx)
             self.env.move_ev_to_grid(ev.id, gi)
-
-            #if i < n_busy_target:
-            '''ev.set_state(EvState.BUSY)
-            ev.status = "Navigation"
-            ev.navdstGrid = random.choice((0,3,4,5))
-            ev.assignedPatientPriority = random.choice((1,2,3))
-            ev.navEtaMinutes = self.rng.uniform(10.0, 30.0)
-            ev.navTargetHospitalId = random.choice((1,78))
-            
-            ev.aggIdleTime = 0.0
-            ev.aggIdleEnergy = 0.0'''
-            #else:
             ev.set_state(EvState.IDLE)
             ev.status = "Idle"
+            ev.sarns["action"] = None
+            ev.sarns["state"] = []
             ev.sarns["reward"] = 0.0
             ev.nextGrid = None
-            ev.aggIdleTime = self.rng.uniform(0.0, self.max_idle_minutes)
+            ev.aggIdleTime = self.rng.uniform(8, self.max_idle_minutes)
             ev.aggIdleEnergy = self.rng.uniform(0.0, self.max_idle_energy)
             ev.navTargetHospitalId = None
             ev.navEtaMinutes = 0.0
@@ -481,17 +528,13 @@ class Controller:
             ev.assignedPatientId = None
             ev.assignedPatientPriority = 0
             ev.navWaitTime = 0.0
-            ev.navdstGrid = None
-            
-        
-                
-
+            ev.navdstGrid = None                
             ev.sarns.clear()
             ev.sarns["state"] = None
             ev.sarns["action"] = None
             ev.sarns["reward"] = 0.0
             ev.sarns["next_state"] = None
-            #print("ev initiated",ev.id,ev.add_idle,ev.aggBusyTime,ev.state,ev.status)
+            
         #print("the lsit",self.env.grids)
 
     # ---------- per-tick ----------
@@ -527,36 +570,39 @@ class Controller:
         self._spawn_incidents_for_tick(t)
         #print("spawned inc",self._spawned_incidents)
         self.env.tick_hospital_waits()
+        #print("####################",self.count, "TICK#######################")
+        
+        
+        
         
         for g in self.env.grids.values():
             g.imbalance = g.calculate_imbalance(self.env.evs, self.env.incidents)
+            #print("Grid",g.index,"Imbalance",g.imbalance)
 
-        # 2) build states and actions for IDLE EV
-       
-        try:
-            self._last_dispatches = dispatches
-        except Exception:
-            self._last_dispatches = []
+        # 2) build states and actions for IDLE EVs
         
         # collect per-tick navigation actions
         nav_actions: list = []
-        idle_transitions = []
+        idle_transitions: List[EV] = []
         for ev in self.env.evs.values():
 
             if ev.state == EvState.IDLE :
-                ev.sarns["state"] = []
-                ev.sarns["action"] = None #i am paranoid, so i cleared stuff here
-                ev.sarns["reward"] = 0
                 state_vec = self._build_state(ev) #and rebuilt stuff here
                 sr_t = torch.as_tensor(state_vec, dtype=torch.float32, device=self.device).view(-1)
                 ev.sarns["state"] = state_vec
+                ev.sarns["reward"] = 0.0
                 a_gi = self._select_action(state_vec, ev.gridIndex)
                 ev.sarns["action"] = a_gi
+
                 ev.nextGrid = ev.gridIndex #to handle none type errror
-                idle_transitions.append((ev,state_vec,a_gi))
+                idle_transitions.append(ev)
+                
                 
         # 3) Accept offers
         self.env.accept_reposition_offers()  #next grid changes
+        for ev in self.env.evs.values():
+            if ev.state == EvState.IDLE:
+                self.reward.append(ev.sarns.get("reward"))
         
         # --- FIX: REMOVED DEBUG_DISPATCH ARGUMENT ---
 
@@ -566,10 +612,6 @@ class Controller:
         busy_transitions = []
         for ev in self.env.evs.values():    
             if ev.state == EvState.BUSY and ev.status == "Navigation":
-                ev.sarns["state"] = []
-                ev.sarns["action"] = None
-                #ev.sarns["reward"] = 0
-                ev.aggIdleTime = 0
                 state_vec,grid_ids = self.build_state_nav1(ev) #this is the same as idle
                 sn_t = torch.as_tensor(state_vec, dtype=torch.float32, device=self.device).view(-1)
                 #replace this with the below navigation state builder
@@ -631,61 +673,32 @@ class Controller:
 
                         ev.navTargetHospitalId = best_hospital.id
                         #print("ev",ev.id,"dstgrid",ev.navdstGrid,"dst hc",ev.navTargetHospitalId,"total wait",ev.navEtaMinutes)
-                        ev.navWaitTime = self.env.calculate_eta_plus_wait(ev, best_hospital)
+                        ev.navWaitTime = best_hospital.waitTime+best_hospital.estimate_eta_minutes(ev.location[0], ev.location[1],40)
                         #print("Controller:ev",ev.id,"curently in grid",ev.gridIndex,"nav waitime to dst",ev.navWaitTime,"dst grid",ev.navdstGrid)
                        
                         ev.aggBusyTime += self.env.calculate_eta_plus_wait(ev, best_hospital)
                 
-                    
-                ev.nextGrid = self.env.next_grid_towards(ev.gridIndex, ev.navdstGrid)
+                else:    
+                    ev.nextGrid = self.env.next_grid_towards(ev.gridIndex, ev.navdstGrid)
                 #print("ev",ev.id," dst",ev.navdstGrid,"nxt grid",ev.nextGrid,"ev status",ev.status)
-                #print("ev",ev.id,"in grid",ev.gridIndex,"dst grid",ev.navdstGrid,"moving to grid",ev.nextGrid,"status of ev",ev.status)
-
-                
-            
-                #  REWARD CALCULATION
-                '''candidate_hs = [
-                h for h in self.env.hospitals.values()
-                if h.gridIndex == dest_grid
-                ]
-                #h=self.env.hospitals.get(a_gi)
-                # 5. Pick a concrete hospital (best = minimum wait time)
-                h = min(candidate_hs, key=lambda hh: hh.waitTime or 0.0)
-
-                if h is not None:
-                    eta = float( h.estimate_eta_minutes(ev.location[0], ev.location[1], kmph = np.clip(np.random.normal(40.0, 5.0), 20.0, 80.0)))
-                    ev.nextGrid = self.env.next_grid_towards(ev.gridIndex, h.gridIndex)
-                    ev.navTargetHospitalId = h.id
-                    ev.navdstGrid = h.gridIndex
-                    
-                    ev.status = "Navigation"
-
-                    if h.waitTime is not None:
-                        w_busy = eta + h.waitTime
-                        ev.navEtaMinutes = w_busy
-                        ev.sarns["reward"] = utility_navigation(w_busy)
-                        #print("reward for navigation", ev.sarns["reward"])
-                
-                print(
-                        f"[NAV-DEBUG] ev={ev.id} "
-                        f"slot={slo} dest_grid={dest_grid} "
-                        f"navTargetHospitalId={ev.navTargetHospitalId} "
-                        f"nextGrid={ev.nextGrid} navdstGrid={ev.navdstGrid} "
-                        f"w_busy={w_busy:.2f}"
-                        )'''
-                
-
-
-            # snapshot idle/energy before env update
+                    #print("ev",ev.id,"in grid",ev.gridIndex,"dst grid",ev.navdstGrid,"moving to grid",ev.nextGrid,"status of ev",ev.status)
         
         
         idle_before = {ev.id: ev.aggIdleTime for ev in self.env.evs.values()}
         energy_before = {ev.id: ev.aggIdleEnergy for ev in self.env.evs.values()}
         #print("called the update function")
-        self.env.update_after_tick(8)
-        #for ev in self.env.evs.values():
-            #if ev.state == EvState.IDLE:
-        for ev,s,a in idle_transitions:
+        for ev in self.env.evs.values():   
+            if ev.state == EvState.IDLE:
+                self.env.update_Repositioning(8)
+            else:  
+                self.env.update_Dispatching(8)
+                self.env.update_Navigation(8)
+
+        self.env.update_incidents(8)
+
+
+
+        for ev in idle_transitions:
             if ev.state == EvState.IDLE :#no change is status
                 doner_t = False
                 
@@ -694,6 +707,7 @@ class Controller:
                 ar_t  = ev.sarns.get("action")
                 rr_t  = ev.sarns.get("reward")
                 st_2_r = self._build_state(ev) #build the next state
+                #print("ev_id",ev.id,"state",sr_t,"action",ar_t,"next state",st_2_r)
                 #doner_t = bool(1)
             else: #idle vehicle became busy during update
                 doner_t = True
@@ -702,10 +716,18 @@ class Controller:
                 #sr_t  = ev.sarns.get("state") 
                 ar_t  = ev.sarns.get("action")
                 rr_t  = ev.sarns.get("reward")
+                if sr_t is None or ar_t is None or rr_t is None:
+                    continue
                 st_2_r = np.zeros(len(sr_t), dtype=np.float32)
+            grid_ids = sorted(self.env.grids.keys())
+            valid_mask_s2 = [1.0]  # slot 0 stay always valid
+            for gid in grid_ids:
+                valid_mask_s2.append(1.0 if self.env.grids[gid].imbalance > 0 else 0.0)
+            valid_mask_s2 = torch.as_tensor(valid_mask_s2,dtype =torch.float32,device=self.device).view(-1)
             sr_t = torch.as_tensor(sr_t, dtype=torch.float32, device=self.device).view(-1)
             st_2_r = torch.as_tensor(st_2_r, dtype=torch.float32, device=self.device).view(-1) 
-            self.buffer_reposition.push(sr_t, ar_t, rr_t, st_2_r, doner_t)
+            #self._log_reposition_push(t, ev.id, sr_t, ar_t, rr_t, st_2_r, doner_t)
+            self.buffer_reposition.push(sr_t, ar_t, rr_t, st_2_r, doner_t, valid_mask_s2)
             #print("Repositioning transition pushed:",  ev.id, "state",sr_t,"next state",st_2_r,"done",doner_t,"\n")
         #elif ev.state == EvState.BUSY and ev.status == "Navigation" :
         for ev,s,a in busy_transitions:
@@ -729,19 +751,20 @@ class Controller:
                 st_2_n = wits
             if sn_t is None or an_t is None or rn_t is None:
                     continue
+            mask = torch.ones(len(sn_t), dtype=torch.float32)
             sn_t = torch.as_tensor(sn_t, dtype=torch.float32, device=self.device).view(-1)
             st_2_n = torch.as_tensor(st_2_n, dtype=torch.float32, device=self.device).view(-1)
-            self.buffer_navigation.push(sn_t, an_t, rn_t, st_2_n, done_t)
+            self.buffer_navigation.push(sn_t, an_t, rn_t, st_2_n, done_t,mask)
             #print("Navigation transition pushed:",  ev.id, "state",sn_t,"next state",st_2_n,"done",done_t,"\n")
             if len(self.buffer_reposition) >= 100:
-                Sr, Ar, Rr, S2r, Dr = self.buffer_reposition.sample(64, self.device)
+                Sr, Ar, Rr, S2r, Dr, mask = self.buffer_reposition.sample(64, self.device)
                 #print("sampled value from rep buffer",Sr,Ar,Rr,S2r,Dr,"\n")
             
         
             #print(" tensor pushed for nav",st_2_n,)
             if len(self.buffer_navigation) >= 100:
-                Sn, An, Rn, S2n, Dn = self.buffer_navigation.sample(64, self.device)
-                #print("sampled value from nav buffer",Sn,An,Rn,S2n,Dn,"\n")
+                Sn, An, Rn, S2n, Dn, mask = self.buffer_navigation.sample(64, self.device)
+                #print("sampled value from nav buffer",Sn,An,Rn,S2n,Dn,"\n")'''
                 
                 
         # measure how much idle time / energy was added this tick
@@ -771,8 +794,8 @@ class Controller:
         #print("for ev number metric list ",emv2.id,"is",emv2.metric)
         #print("for ev nummber",emv.id,"idle time is",emv.aggIdleTime)  
         #print("for ev nummber",emv2.id,"idle time is",emv2.aggIdleTime)
-        self._train_reposition(batch_size=64, gamma=0.99)
-        self._train_navigation(batch_size=64, gamma=0.99)
+        self._train_reposition(batch_size=64, gamma=0.95)
+        self._train_navigation(batch_size=64, gamma=0.95)
         
         '''print("EV state distribution:",
         sum(ev.state == EvState.IDLE for ev in self.env.evs.values()), "idle,",
@@ -782,6 +805,9 @@ class Controller:
 
 
     def run_training_episode(self, episode_idx: int) -> dict:
+        
+        print("Episode:", episode_idx)
+        
         # 1) Reset environment and schedule for this episode
         self._reset_episode()
 
@@ -807,6 +833,7 @@ class Controller:
         total_rep_reward: float = 0.0
         n_rep_moves: int = 0
         total_dispatched: int = 0
+        self.count = 0
 
         # 4) Run ticks
         for t in range(self.ticks_per_ep):
@@ -899,15 +926,7 @@ class Controller:
         if len(self.ep_repo_losses) > 0:
             avg_repo_loss = sum(self.ep_repo_losses) / len(self.ep_repo_losses)
 
-        #print("=" * 60)
-        #print(f"EP {episode_idx:03d} Summary")
-        #print("-" * 60)
-        #print(f"Schedule: total={self.total_today} | spawned_success={self._spawn_success}")
-        #print(f"Dispatch: total={total_dispatches} | unique={unique_assigned_incidents}")
-        #print(f"Nav Loss: {avg_ep_loss:.4f}| Repo Loss: {avg_repo_loss:.4f}")
-        #print("=" * 60)
 
-        hard_update(self.dqn_reposition_target, self.dqn_reposition_main)
 
         stats = {
             "episode": episode_idx,
@@ -1294,6 +1313,28 @@ class Controller:
         #print("episodic idle time",stats["average episodic idle times\n"])
         return stats
             
+    def _log_reposition_push(self, t, evId, s, a, r, s2, done):
+        try:
+            sList = s.detach().cpu().tolist() if hasattr(s, "detach") else list(s)
+            s2List = s2.detach().cpu().tolist() if hasattr(s2, "detach") else list(s2)
+        except Exception:
+            sList = str(s)
+            s2List = str(s2)
 
+        rec = {
+            "step": int(self.repositionLogStep),
+            "tick": int(t),
+            "ev": int(evId) if evId is not None else None,
+            "action": int(a) if a is not None else None,
+            "reward": None if r is None else float(r),
+            "done": int(done) if done is not None else 0,
+            "state": sList,
+            "next_state": s2List,
+        }
+
+        with open(self.repositionLogPath, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec) + "\n")
+
+        self.repositionLogStep += 1
             
 
