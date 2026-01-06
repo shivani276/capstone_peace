@@ -25,7 +25,7 @@ class DispatcherService:
         self,
         grids: Dict[int, Grid],
         evs: Dict[int, EV],
-        incidents: Dict[int, Incident],
+        incidents: Dict[int, Incident]
     ) -> List[Tuple[int, int]]:
         """
         Returns:
@@ -37,7 +37,7 @@ class DispatcherService:
         # Process EACH grid independently (gridwise FCFS)
         for g_idx, g in grids.items():
             print(f"\n[DISPATCH DEBUG] Grid {g_idx}")
-            print(f"  Pending incidents: {g.get_pending_incidents(incidents)}")
+            print(f"  Pending incidents beginning: {g.get_pending_incidents(incidents)}")
             print(f"  Eligible idle EVs: {g.get_eligible_idle_evs(evs)}")
 
             # 1) Pending incidents in THIS grid
@@ -47,9 +47,9 @@ class DispatcherService:
                 and inc.gridIndex == g_idx
             ]
 
+
             # FCFS: earliest arrival first
             pending_incidents.sort(key=lambda inc: inc.timestamp)
-
             # 2) Handle incidents one by one
             for inc in pending_incidents:
 

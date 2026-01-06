@@ -626,7 +626,7 @@ class Controller:
                 inc.responseToHospitalMinutes = None
             try:
                 self._spawned_incidents[inc.id] = inc
-                print("incident id",inc)
+                #print("incident id",inc)
                 #print(f"incident stats",inc.to_dict)
             except Exception:
                 pass
@@ -685,6 +685,12 @@ class Controller:
             mu_dict=mu_dict
         )
         # --- FIX: REMOVED DEBUG_DISPATCH ARGUMENT ---
+
+        for inc in self.env.incidents.values():
+            if inc.status == IncidentStatus.UNASSIGNED:
+                print(f"Inc {inc.id}: gridIndex={inc.gridIndex}")
+
+
         dispatches = self.env.dispatch_gridwise(beta=0.5)
         busy_transitions = []
         for ev in self.env.evs.values():    
@@ -864,14 +870,7 @@ class Controller:
                 self._ep_idle_added += di
             if de > 0:
                 self._ep_energy_added += de
-
         #next state???????????????  
-        
-        
-                
-                
-                
-                
         emv2 = self.env.evs[2]
         emv1 = self.env.evs[1]
         #print("for ev number metric list ",emv.id,"is",emv.metric)
@@ -879,15 +878,55 @@ class Controller:
         #print("for ev nummber",emv.id,"idle time is",emv.aggIdleTime)  
         #print("for ev nummber",emv2.id,"idle time is",emv2.aggIdleTime)
         #self._train_reposition(batch_size=64, gamma=0.99)
+        #'''
+        # Debug block ------------------------------------------------------------------------>
+        print("\n=== DEBUG TICK", t, "===")
+
+        # 1) Arrival rates and urgency (ALL grids)
+        print("Urgency of ALL grids (lower T*_j = more urgent):")
+        for g_idx in sorted(self.env.grids.keys()):
+            ui = self.repositioning_service.last_urgencies.get(g_idx, None)
+            if ui is None:
+                print(f"  Grid {g_idx}: T*_j = N/A")
+            else:
+                print(f"  Grid {g_idx}: T*_j = {ui:.3f}")
+         
+        # 2) Idle EV count per grid (n_j verification)
+        print("\nIdle EV count per grid (n_j):")
+        for g_idx in sorted(self.env.grids.keys()):
+            n_j = sum(
+                1 for ev in self.env.evs.values()
+                if ev.state == EvState.IDLE and ev.gridIndex == g_idx
+            )
+            print(f"  Grid {g_idx}: n_j = {n_j}")
+
+        # 3) Redeployment movements this tick
+        print("\nEV Redeployments this tick:")
+        any_move = False
+        for ev in self.env.evs.values():
+            if ev.sarns.get("just_redeployed", False):
+                print(f"  EV {ev.id}: moved to Grid {ev.gridIndex}")
+                any_move = True
+        if not any_move:
+            print("  None")
+
+        # 4) Final EV distribution
+        print("\nFinal EV Status Summary:")
+        for ev in self.env.evs.values():
+            print(
+                f"  EV {ev.id}: "
+                f"state={ev.state.name}, "
+                f"status={ev.status}, "
+                f"grid={ev.gridIndex}"
+            )
+        #'''
+        print("=== END DEBUG ===\n")
         self._train_navigation(batch_size=64, gamma=0.99)
         self.global_tick +=1
         '''print("EV state distribution:",
         sum(ev.state == EvState.IDLE for ev in self.env.evs.values()), "idle,",
         sum(ev.status == "Dispatching" for ev in self.env.evs.values()), "dispatching,",
         sum(ev.state == EvState.BUSY for ev in self.env.evs.values()), "busy")'''
-
-
-
     def run_training_episode(self, episode_idx: int) -> dict:
         # 1) Reset environment and schedule for this episode
         self._reset_episode()
