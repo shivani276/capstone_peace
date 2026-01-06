@@ -56,7 +56,7 @@ plt.show()
 import matplotlib.pyplot as plt
 import pandas as pd
 from MAP_env import MAP
-from Controller import Controller
+from Cont_T import Controller
 import torch
 # Initialize Environment
 env = MAP("Data/grid_config_2d.json")
@@ -73,33 +73,18 @@ ctrl = Controller(
     csv_path="Data/Fire_Department_and_Emergency_Medical_Services_Dispatched_Calls_for_Service_20251208_with_index.csv"
 )
 #print("initialized evs", ctrl.env)
-n_episodes = 20
+n_episodes = 200
 n_tests = 0
 all_stats = []
 all_nav_loss = []
-all_repo_loss = [] # New list for repositioning
-test_idlet =[]
-test_idlee = []
-average_i_veh = {}
-
+all_repo_loss = []
 
 for ep in range(1, n_episodes + 1):
     stats = ctrl.run_training_episode(ep)
-    
-    # Get both losses
+
     nav_loss = stats["average ep loss"]
     repo_loss = stats["average repo loss"]
-    
-    all_nav_loss.append(nav_loss)
-    all_repo_loss.append(repo_loss)
-    all_stats.append(stats)
 
-
-    
-    # Get both losses
-    nav_loss = stats["average ep loss"]
-    repo_loss = stats["average repo loss"]
-    
     all_nav_loss.append(nav_loss)
     all_repo_loss.append(repo_loss)
     all_stats.append(stats)
@@ -170,8 +155,8 @@ plt.legend()
 
 # Plot 2: Repositioning Loss
 plt.subplot(2, 1, 2) # 2 rows, 1 column, plot #2
-plt.plot(all_repo_loss, color='orange', label='Reposition Loss')
-plt.xlabel("Episode")
+episodes = list(range(1, n_episodes + 1))
+plt.plot(episodes, all_repo_loss, color='orange', label='Reposition Loss')
 plt.ylabel("Reposition Loss")
 plt.grid(True)
 plt.legend()
