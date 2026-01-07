@@ -36,9 +36,9 @@ class DispatcherService:
 
         # Process EACH grid independently (gridwise FCFS)
         for g_idx, g in grids.items():
-            print(f"\n[DISPATCH DEBUG] Grid {g_idx}")
-            print(f"  Pending incidents beginning: {g.get_pending_incidents(incidents)}")
-            print(f"  Eligible idle EVs: {g.get_eligible_idle_evs(evs)}")
+            #print(f"\n[DISPATCH DEBUG] Grid {g_idx}")
+            #print(f"  Pending incidents beginning: {g.get_pending_incidents(incidents)}")
+            #print(f"  Eligible idle EVs: {g.get_eligible_idle_evs(evs)}")
 
             # 1) Pending incidents in THIS grid
             pending_incidents = [

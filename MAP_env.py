@@ -103,6 +103,15 @@ class MAP:
                         if 0 <= nr < n_rows and 0 <= nc < n_cols:
                             nbs.append(nr * n_cols + nc)
                 self.grids[idx].neighbours = nbs
+        '''print("\n[GRID INIT CHECK]")
+        for idx, g in self.grids.items():
+            print(
+                f"Grid {idx}: "
+                f"center={g.center1d}, "
+                f"neighbors={len(g.neighbours)}, "
+                f"incidents={len(getattr(g, 'incidents', []))}, "
+                f"evs={len(getattr(g, 'evs', []))}"
+            )'''
 
     def build_all_hop_maps(self, n_rows, n_cols) :
         hop_maps = {}
@@ -670,12 +679,15 @@ class MAP:
         for g in self.grids.values():
             g.imbalance = g.calculate_imbalance(self.evs, self.incidents)
         
-    
-    
-
-
-
-                    
+        '''        
+        print("\n[POST-TICK EV LOCATIONS]")
+        for ev in self.evs.values():
+            print(
+                f"EV {ev.id}: "
+                f"grid={ev.gridIndex}, "
+                f"state={ev.state}"
+            )
+            '''   
                 
     def update_Repositioning(self, dt_minutes: float) -> None:
         for ev in self.evs.values():

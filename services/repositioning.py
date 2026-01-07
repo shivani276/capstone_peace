@@ -55,6 +55,7 @@ class RepositioningService:
         Deterministic, bug-free urgency-based redeployment.
         """
 
+
         # ---------- 1. Compute urgencies ---------- #
         urgencies = {}
 
@@ -115,3 +116,13 @@ class RepositioningService:
             ev.sarns["to_grid"] = g_idx
             #ev.sarns["reward"] = utility_repositioning(ev.aggIdleTime, ev.aggIdleEnergy)
             ev.sarns["reward"] = 0.0
+        ''' 
+        print("\n[URGENCY CHECK]")
+        for g_idx in grids:
+            print(
+                f"Grid {g_idx}: "
+                f"mu={mu_dict.get(g_idx)}, "
+                f"idle={idle_evs[g_idx]}, "
+                f"urgency={urgencies[g_idx]}"
+            )
+        '''

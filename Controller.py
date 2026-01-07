@@ -641,7 +641,15 @@ class Controller:
         self._spawn_incidents_for_tick(t)
         #print("spawned inc",self._spawned_incidents)
         self.env.tick_hospital_waits()
-        
+        ''' 
+        print("\n[INCIDENT INGEST CHECK]")
+        for inc in list(self.env.incidents.values())[:10]:
+            print(
+                f"Inc {inc.id}: "
+                f"grid={inc.gridIndex}, "
+                f"status={inc.status}"
+            )
+        '''
         for g in self.env.grids.values():
             g.imbalance = g.calculate_imbalance(self.env.evs, self.env.incidents)
 
@@ -685,11 +693,11 @@ class Controller:
             mu_dict=mu_dict
         )
         # --- FIX: REMOVED DEBUG_DISPATCH ARGUMENT ---
-
+        ''' 
         for inc in self.env.incidents.values():
             if inc.status == IncidentStatus.UNASSIGNED:
                 print(f"Inc {inc.id}: gridIndex={inc.gridIndex}")
-
+        '''
 
         dispatches = self.env.dispatch_gridwise(beta=0.5)
         busy_transitions = []
@@ -731,6 +739,7 @@ class Controller:
                 #(ev.navWaitTime)
                 if ev.assignedPatientId is not None:
                     inc = self.env.incidents.get(ev.assignedPatientId)
+                    H_MIN = 20
                     if inc is not None and inc.responseToHospitalMinutes is not None:
                         if ev.assignedPatientPriority == 2:
                             H_MIN = 20.0
@@ -878,7 +887,7 @@ class Controller:
         #print("for ev nummber",emv.id,"idle time is",emv.aggIdleTime)  
         #print("for ev nummber",emv2.id,"idle time is",emv2.aggIdleTime)
         #self._train_reposition(batch_size=64, gamma=0.99)
-        #'''
+        '''
         # Debug block ------------------------------------------------------------------------>
         print("\n=== DEBUG TICK", t, "===")
 
@@ -919,14 +928,16 @@ class Controller:
                 f"status={ev.status}, "
                 f"grid={ev.gridIndex}"
             )
-        #'''
         print("=== END DEBUG ===\n")
+        '''
         self._train_navigation(batch_size=64, gamma=0.99)
         self.global_tick +=1
         '''print("EV state distribution:",
         sum(ev.state == EvState.IDLE for ev in self.env.evs.values()), "idle,",
         sum(ev.status == "Dispatching" for ev in self.env.evs.values()), "dispatching,",
         sum(ev.state == EvState.BUSY for ev in self.env.evs.values()), "busy")'''
+
+
     def run_training_episode(self, episode_idx: int) -> dict:
         # 1) Reset environment and schedule for this episode
         self._reset_episode()
@@ -1076,6 +1087,11 @@ class Controller:
             "average ep loss": avg_ep_loss,
             "average repo loss": avg_repo_loss,  # Added this key
         }
+        print("\n========== EPISODE SUMMARY ==========")
+        for k, v in stats.items():
+            print(f"{k:30s}: {v}")
+        print("====================================\n")
+
         return stats
 
             #"avg_idle_added": avg_idle_added,
