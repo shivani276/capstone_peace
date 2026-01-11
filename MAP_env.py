@@ -188,7 +188,7 @@ class MAP:
             g.evs.clear()
 
         rng = random.Random(seed)
-        n_evs = 27
+        n_evs = 20
         all_idx = list(self.grids.keys())
 
         for _ in range(n_evs):
@@ -676,7 +676,31 @@ class MAP:
         
     
     
+    def get_all_hop_distances(self,start_index: int) -> dict[int, list[int]]:
 
+        n_rows = len(self.lat_edges) - 1
+        n_cols = len(self.lng_edges) - 1
+
+        # Get starting coordinates
+        r_start, c_start = divmod(start_index, n_cols)
+        
+        hops_map = {}
+        
+        # Iterate over every grid cell in the system
+        for r in range(n_rows):
+            for c in range(n_cols):
+                # Calculate Chebyshev distance (8-way movement logic)
+                dist = max(abs(r - r_start), abs(c - c_start))
+                
+                # Convert (r, c) back to linear grid index
+                idx = r * n_cols + c
+                
+                # Add to the dictionary
+                if dist not in hops_map:
+                    hops_map[dist] = []
+                hops_map[dist].append(idx)
+                
+        return hops_map
 
 
                     
@@ -687,17 +711,14 @@ class MAP:
                 #print("ev ",ev.id,"in grid",ev.gridIndex,"total idle time",ev.aggIdleTime,"total idle energy",ev.aggIdleEnergy)
                 if ev.gridIndex != ev.nextGrid and ev.nextGrid is not None:
                     ev.aggIdleEnergy += 0.12  # Fixed energy cost for repositioning from one grid to another
-                    g = self.grids.get(ev.nextGrid)
-                    if g is not None:
-                        #print("Entering this loop")
-                        ev.add_idle(8) #g.estimate_eta_minutes(ev.location[0], ev.location[1], 40.0))
+                    ev.aggIdleTime += 8.0
                     self.move_ev_to_grid(ev.id, ev.nextGrid)
                     #print("ev ",ev.id,"reached grid",ev.gridIndex,"total idle time",ev.aggIdleTime,"total idle energy",ev.aggIdleEnergy)
                     ev.nextGrid = None
                     ev.status = "Idle"  
             elif ev.state == EvState.IDLE and ev.status == "Idle":
                 
-                ev.add_idle(8.0)
+                ev.aggIdleTime += 8.0
                 #print("ev ",ev.id,"in grid",ev.gridIndex,"total idle time",ev.aggIdleTime)
             
                         
@@ -766,7 +787,7 @@ class MAP:
                             inc_n.mark_resolved()
                             #print("number of ticks it took to service",count)
                             ev.release_incident()
-                            #ev.aggBusyTime = 0
+                            ev.aggBusyTime = 0
                             ev.aggIdleEnergy = 0
                             ev.aggIdleTime = 0
                             g = self.grids.get(inc_n.gridIndex)

@@ -72,7 +72,7 @@ class Controller:
                 def __len__(self): return 0
 
             self.dqn_reposition_main = None
-            self.dqn_reposition_target = None
+            self.dqn_reposition_target
             self.opt_reposition = None
             self.buffer_reposition = DummyBuffer()
             
@@ -94,8 +94,12 @@ class Controller:
 
             self.dqn_reposition_main = DQNetwork(state_dim, action_dim).to(self.device)
             self.dqn_reposition_target = DQNetwork(state_dim, action_dim).to(self.device)
-            self.dqn_reposition_target.load_state_dict(self.dqn_reposition_main.state_dict())
-            self.opt_reposition = torch.optim.Adam(self.dqn_reposition_main.parameters(), lr=1e-3)
+            if self.dqn_reposition_main is not None and self.dqn_reposition_target is not None:
+                self.dqn_reposition_target.load_state_dict(self.dqn_reposition_main.state_dict())
+            if self.dqn_reposition_main is not None:
+                self.opt_reposition = torch.optim.Adam(self.dqn_reposition_main.parameters(), lr=1e-3)
+            else:
+                self.opt_reposition = None
             self.buffer_reposition = ReplayBuffer(100)
             self.repositionLogPath = "reposition_buffer_log.txt"
             self.repositionLogStep = 0
@@ -118,8 +122,12 @@ class Controller:
             #self.nav_tau = 0.005          
             self.dqn_navigation_main = DQNetwork(state_dim_nav, nav_action_dim).to(self.device)
             self.dqn_navigation_target = DQNetwork(state_dim_nav, nav_action_dim).to(self.device)
-            self.dqn_navigation_target.load_state_dict(self.dqn_navigation_main.state_dict())
-            self.opt_navigation = torch.optim.Adam(self.dqn_navigation_main.parameters(), lr=1e-4)
+            if self.dqn_navigation_main is not None and self.dqn_navigation_target is not None:
+                self.dqn_navigation_target.load_state_dict(self.dqn_navigation_main.state_dict())
+            if self.dqn_navigation_main is not None:
+                self.opt_navigation = torch.optim.Adam(self.dqn_navigation_main.parameters(), lr=1e-4)
+            else:
+                self.opt_navigation = None
             self.buffer_navigation = ReplayBuffer(50_000)
 
             hard_update(self.dqn_reposition_target, self.dqn_reposition_main)
@@ -507,7 +515,7 @@ class Controller:
         
 
         loss = F.smooth_l1_loss(q, y)
-        if self.opt_reposition is not None:
+        if self.opt_reposition is not None and self.dqn_reposition_main is not None:
             self.opt_reposition.zero_grad()
             loss.backward()
             nn_utils.clip_grad_norm_(
@@ -524,18 +532,20 @@ class Controller:
         self.rep_hard_update = 2000
 
         # -------- SOFT UPDATE (EVERY STEP) --------
-        with torch.no_grad():
-            for p_t, p in zip(
-                self.dqn_reposition_target.parameters(),
-                self.dqn_reposition_main.parameters()
-            ):
-                p_t.data.mul_(1.0 - self.rep_tau).add_(self.rep_tau * p.data)
+        if self.dqn_reposition_main is not None and self.dqn_reposition_target is not None:
+            with torch.no_grad():
+                for p_t, p in zip(
+                    self.dqn_reposition_target.parameters(),
+                    self.dqn_reposition_main.parameters()
+                ):
+                    p_t.data.mul_(1.0 - self.rep_tau).add_(self.rep_tau * p.data)
 
         # -------- HARD UPDATE (EVERY N STEPS) --------
         if self.rep_step % self.rep_hard_update == 0:
-            self.dqn_reposition_target.load_state_dict(
-                self.dqn_reposition_main.state_dict()
-            )
+            if self.dqn_reposition_main is not None and self.dqn_reposition_target is not None:
+                self.dqn_reposition_target.load_state_dict(
+                    self.dqn_reposition_main.state_dict()
+                )
 
         if self.rep_step % 500 == 0:
             print(
@@ -885,8 +895,7 @@ class Controller:
                         elif ev.assignedPatientPriority == 1:
                             H_MIN = 10.0
                         # R_busy is the total wait (response + hospital) time
-                        
-                        #wait_seen_ev = self.env.calculate_eta_plus_wait(ev, h)
+                        print("inc wait",inc.waitTime,"mean wait",mean_wait,"inc id",inc.id)
                         R_busy = inc.waitTime + mean_wait
                         #print("inc wait",inc.waitTime,"ev wait",mean_wait,"inc id",inc.id)
                         #R_busy = inc.waitTime + wait_seen_ev

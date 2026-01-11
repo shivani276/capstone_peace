@@ -96,7 +96,7 @@ class DispatcherService:
                     #best_ev.status = "navigation"
                     
                     best_ev.assignedPatientPriority = inc.priority
-                    if ev.gridIndex != inc.gridIndex:
+                    if best_ev.gridIndex != inc.gridIndex:
                         best_ev.nextGrid = g_idx  # Move to incident grid first
                     
                     # Remove from available lists per Algorithm 2
