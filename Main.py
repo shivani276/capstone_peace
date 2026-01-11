@@ -78,9 +78,11 @@ n_tests = 0
 all_stats = []
 all_nav_loss = []
 all_repo_loss = [] # New list for repositioning
+all_Q =[]
 test_idlet =[]
 test_idlee = []
 average_i_veh = {}
+dict_Q = {}
 
 
 for ep in range(1, n_episodes + 1):
@@ -89,10 +91,13 @@ for ep in range(1, n_episodes + 1):
     # Get both losses
     nav_loss = stats["average ep loss"]
     repo_loss = stats["average repo loss"]
+    Q_values_plot = stats["Q value"]
+    dict_Q[ep] = Q_values_plot
     
     all_nav_loss.append(nav_loss)
     all_repo_loss.append(repo_loss)
     all_stats.append(stats)
+    all_Q.append(Q_values_plot)
 
 
     
@@ -177,4 +182,12 @@ plt.grid(True)
 plt.legend()
 
 plt.tight_layout() # Prevents overlap
+plt.show()
+plt.figure(figsize=(10, 8))
+#plt.plot(all_Q, color='orange', label='navigation Q convergence')
+plt.plot(dict_Q.keys(),dict_Q.values(), color='orange', label='navigation Q convergence')
+plt.xlabel("Episode")
+plt.ylabel("Q vlaue")
+plt.grid(True)
+plt.legend()
 plt.show()

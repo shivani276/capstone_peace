@@ -466,6 +466,12 @@ class MAP:
     def update_after_tick(self, dt_minutes: float = 8.0) -> None:
         # EV updates
         #print("updtae function call")
+        for hc in self.hospitals.values():
+           # hc.waitTime = math.exp(13)
+            #number += 1
+            rng = np.random.default_rng()
+            lam = 8.9 + 10.0 / 2.0 # mean
+            hc.waitTime = min(40, rng.exponential(13))
         for ev in self.evs.values():
             if ev.nextGrid and ev.id is not None:
                 if ev.state == EvState.BUSY: #and ev.gridIndex == ev.navdstGrid: #and ev.assignedPatientId is not None:
@@ -524,11 +530,14 @@ class MAP:
                                 h = self.hospitals[ev.navTargetHospitalId]  # Get the Hospital object
 
                                 if ev.assignedPatientPriority == 1:
-                                    h.evs_serving_priority_1.append(ev.id)
+                                    if ev.id not in h.evs_serving_priority_1:
+                                        h.evs_serving_priority_1.append(ev.id)
                                 elif ev.assignedPatientPriority == 2:
-                                    h.evs_serving_priority_2.append(ev.id)
+                                    if ev.id not in h.evs_serving_priority_2:
+                                        h.evs_serving_priority_2.append(ev.id)
                                 else:
-                                    h.evs_serving_priority_3.append(ev.id)
+                                    if ev.id not in h.evs_serving_priority_3: 
+                                        h.evs_serving_priority_3.append(ev.id)
                                 
                                 #print("nav wait time updated",ev.navWaitTime,ev.id)
                                 #print("ev ",ev.id,"reached dst hc and got in queue to",h.id,"remaining wait time of ev",ev.navWaitTime)

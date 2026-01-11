@@ -268,18 +268,19 @@ class Controller:
                 if h.gridIndex != g_idx:
                     continue
                 w_valid = self.env.calculate_eta_plus_wait(ev, h)
-                
+                #print("w_valid for hc",h.id,"is",w_valid)
                 if w_valid is not None:
                     w = max(0,w_valid)
                     waits.append(float(w))
             if waits:
+                #print("wait ",waits)
                 grid_mean_wait[g_idx] = sum(waits) / len(waits)
             else:
                 grid_mean_wait[g_idx] = 0.0
             
             mean_wait = grid_mean_wait[g_idx]
             state_vec.append(mean_wait)
-        
+        #print("waits inside state vector",state_vec)
         #print("shape of vector",len(grid_ids))
         return state_vec, grid_ids
 
@@ -475,7 +476,7 @@ class Controller:
             return
         
         try:
-              s, a, r, s2, done, valid_mask_s2 = self.buffer_reposition.sample(
+              s, a, r, s2, done = self.buffer_reposition.sample(
         batch_size, device=self.device)
         except TypeError:
             batch = self.buffer_reposition.sample(batch_size, device=self.device)
@@ -486,12 +487,12 @@ class Controller:
             done= torch.as_tensor(batch[4], dtype=torch.float32, device=self.device)
         
         with torch.no_grad():
-            q2_all = self.dqn_reposition_target(s2)     # (B, 9)
+            q2 = self.dqn_reposition_target(s2)     # (B, 9)
 
            
-            q2_all[valid_mask_s2 == 0] = -1e9
+            #q2_all[valid_mask_s2 == 0] = -1e9
 
-            q2 = q2_all.max(dim=1).values
+            #q2 = q2_all.max(dim=1).values
 
             y = r + gamma * (1.0 - done) * q2
 
@@ -549,7 +550,7 @@ class Controller:
             return
 
         # ---- Sample batch ----
-        s, a, r, s2, done,mask = self.buffer_navigation.sample(
+        s, a, r, s2, done = self.buffer_navigation.sample(
             batch_size,
             device=self.device
         )
@@ -565,6 +566,8 @@ class Controller:
             .gather(1, a.unsqueeze(1))
             .squeeze(1)
         )
+        q_val = q_sa.mean().item()
+
 
         # ---- TD target from TARGET network ----
         with torch.no_grad():
@@ -596,8 +599,9 @@ class Controller:
         if self.nav_step % 500 == 0:
             print(
                 f"[Controller] NAV train step={self.nav_step} "
-                f"loss={loss.item():.4f}"
+                f"loss={loss.item():.4f}"f"Q value{q_val}"
             )
+            return float(q_val)
 
     
     '''def _train_navigation(self, batch_size: int = 64, gamma: float = 0.99):
@@ -682,6 +686,13 @@ class Controller:
         self.ep_repo_losses = [] # Reset reposition loss tracking
 
         self.env.incidents.clear()
+        for hosp in self.env.hospitals.values():
+            hosp.evs_serving_priority_1.clear()
+            hosp.evs_serving_priority_2.clear()
+            hosp.evs_serving_priority_3.clear()
+            rng = np.random.default_rng()
+            hosp.waitTime = min(40, rng.exponential(13))
+
         for g in self.env.grids.values():
             g.incidents.clear()
 
@@ -779,7 +790,7 @@ class Controller:
             
             self._spawn_success +=1
 
-    def _tick(self, t: int) -> None:
+    def _tick(self, t: int) :
         episode_done = (self.global_tick >= self.ticks_per_ep- 1)
         #if episode_done==1:
             #print("done is true",episode_done)
@@ -833,7 +844,9 @@ class Controller:
                 ev.sarns["action"] = None
                 ev.sarns["reward"] = 0
                 ev.aggIdleTime = 0
+                #print("before update priniting waits")
                 state_vec,grid_ids = self.build_state_nav1(ev) #this is the same as idle
+                #print("before update,state",state_vec)
                 sn_t = torch.as_tensor(state_vec, dtype=torch.float32, device=self.device).view(-1)
                 #replace this with the below navigation state builder
                 #state_vec = self.build_state_nav(ev)
@@ -872,8 +885,11 @@ class Controller:
                         elif ev.assignedPatientPriority == 1:
                             H_MIN = 10.0
                         # R_busy is the total wait (response + hospital) time
-                        print("inc wait",inc.waitTime,"mean wait",mean_wait,"inc id",inc.id)
+                        
+                        #wait_seen_ev = self.env.calculate_eta_plus_wait(ev, h)
                         R_busy = inc.waitTime + mean_wait
+                        #print("inc wait",inc.waitTime,"ev wait",mean_wait,"inc id",inc.id)
+                        #R_busy = inc.waitTime + wait_seen_ev
 
                         ev.sarns["reward"] = utility_navigation(R_busy, H_min= H_MIN, H_max=inc.responseToHospitalMinutes)
                         #print("ev",ev.id,"utility",ev.sarns["reward"],"r busy",R_busy,"h min",H_MIN,"H_max",inc.responseToHospitalMinutes)
@@ -938,12 +954,12 @@ class Controller:
                 rr_t  = ev.sarns.get("reward")
                 st_2_r = np.zeros(len(sr_t), dtype=np.float32)
                 #print("size of s2",len(st_2_r))
-            valid_mask_s2 = self.get_valid_action_mask(emv.gridIndex)
-            valid_mask_s2 = torch.as_tensor(valid_mask_s2,dtype =torch.float32,device=self.device).view(-1)
+            #valid_mask_s2 = self.get_valid_action_mask(emv.gridIndex)
+            #valid_mask_s2 = torch.as_tensor(valid_mask_s2,dtype =torch.float32,device=self.device).view(-1)
             sr_t = torch.as_tensor(sr_t, dtype=torch.float32, device=self.device).view(-1)
             st_2_r = torch.as_tensor(st_2_r, dtype=torch.float32, device=self.device).view(-1) 
             self._log_reposition_push(t, ev.id, sr_t, ar_t, rr_t, st_2_r, doner_t)
-            self.buffer_reposition.push(sr_t, ar_t, rr_t, st_2_r, doner_t,valid_mask_s2 )
+            self.buffer_reposition.push(sr_t, ar_t, rr_t, st_2_r, doner_t)
             #print("rep rewards",rr_t,"evid",emv.id)
             #print("Repositioning transition pushed:",  ev.id, "state",sr_t,"action",ar_t,"next state",st_2_r,"reward",rr_t,"done",doner_t,"\n")
         #elif ev.state == EvState.BUSY and ev.status == "Navigation" :
@@ -953,7 +969,9 @@ class Controller:
                 sn_t  = emv.sarns.get("state") #checked size = 4
                 an_t  = emv.sarns.get("action")
                 rn_t  = emv.sarns.get("reward")
+                #print("after updateprinting states")
                 wits, grids_ids = self.build_state_nav1(emv) #checked size = 4
+                #print("after update, state done is flase",wits)
                 st_2_n = wits
                 
                     #size =4
@@ -965,24 +983,25 @@ class Controller:
                 an_t  = emv.sarns.get("action")
                 rn_t  = emv.sarns.get("reward")
                 wits = np.zeros(len(sn_t),dtype = np.float32)
+                #print("after update done is true",wits)
                 st_2_n = wits
             if sn_t is None or an_t is None or rn_t is None:
                     continue
-            mask = torch.ones(len(sn_t), dtype=torch.float32)
+            #mask = torch.ones(len(sn_t), dtype=torch.float32)
             sn_t = torch.as_tensor(sn_t, dtype=torch.float32, device=self.device).view(-1)
             st_2_n = torch.as_tensor(st_2_n, dtype=torch.float32, device=self.device).view(-1)
-            self.buffer_navigation.push(sn_t, an_t, rn_t, st_2_n, done_t,mask)
+            self.buffer_navigation.push(sn_t, an_t, rn_t, st_2_n, done_t)
             #print("smaples pushed into buffer are","\n","state",sn_t,"nextstate",st_2_n,"action",an_t,"reward",rn_t,"done",done_t)
             #print("NAV rewards",rn_t,"evid",emv.id)
             #print("Navigation transition pushed:",  ev.id, "state",sn_t,"next state",st_2_n,"done",done_t,"\n")
             if len(self.buffer_reposition) >= 100:
-                Sr, Ar, Rr, S2r, Dr,mask_r = self.buffer_reposition.sample(64, self.device)
+                Sr, Ar, Rr, S2r, Dr = self.buffer_reposition.sample(64, self.device)
                 #print("sampled value from rep buffer",Sr,Ar,Rr,S2r,Dr,"\n")
             
         
             #print(" tensor pushed for nav",st_2_n,)
             if len(self.buffer_navigation) >= 100:
-                Sn, An, Rn, S2n, Dn,mask_n = self.buffer_navigation.sample(64, self.device)
+                Sn, An, Rn, S2n, Dn = self.buffer_navigation.sample(64, self.device)
                 #print("sampled value from nav buffer",Sn,An,Rn,S2n,Dn,"\n")
                 
                 
@@ -1014,12 +1033,13 @@ class Controller:
         #print("for ev nummber",emv.id,"idle time is",emv.aggIdleTime)  
         #print("for ev nummber",emv2.id,"idle time is",emv2.aggIdleTime)
         #self._train_reposition(batch_size=64, gamma=0.99)
-        self._train_navigation(batch_size=64, gamma=0.99)
+        Q_value_tick = self._train_navigation(batch_size=64, gamma=0.99)
         self.global_tick +=1
         '''print("EV state distribution:",
         sum(ev.state == EvState.IDLE for ev in self.env.evs.values()), "idle,",
         sum(ev.status == "Dispatching" for ev in self.env.evs.values()), "dispatching,",
         sum(ev.state == EvState.BUSY for ev in self.env.evs.values()), "busy")'''
+        return Q_value_tick
 
 
 
@@ -1051,8 +1071,12 @@ class Controller:
         total_dispatched: int = 0
 
         # 4) Run ticks
+        Q_value_ep_list = []
+        Q_value_ep_avg = 0
         for t in range(self.ticks_per_ep):
-            self._tick(t)
+            Q_value_ep = self._tick(t)
+            if Q_value_ep is not None:
+                Q_value_ep_list.append(float(Q_value_ep))
             tick_dispatches = getattr(self, "_last_dispatches", []) or []
             try:
                 per_tick_dispatch_counts.append(len(tick_dispatches))
@@ -1092,6 +1116,10 @@ class Controller:
                     max_concurrent_assigned = n_servicing
             except Exception:
                 pass
+        if Q_value_ep_list:
+            Q_value_ep_avg = sum(Q_value_ep_list)/len(Q_value_ep_list)
+        else:
+            Q_value_ep_avg  = 0
 
         # 5) Average reposition reward
         avg_rep_reward = total_rep_reward / max(1, n_rep_moves)
@@ -1150,6 +1178,8 @@ class Controller:
         #print("=" * 60)
 
         hard_update(self.dqn_reposition_target, self.dqn_reposition_main)
+        
+        
 
         stats = {
             "episode": episode_idx,
@@ -1171,6 +1201,7 @@ class Controller:
             "total_incidents": len(self.env.incidents),
             "average ep loss": avg_ep_loss,
             "average repo loss": avg_repo_loss,  # Added this key
+            "Q value" : Q_value_ep_avg
         }
         return stats
 
