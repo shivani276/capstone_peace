@@ -791,6 +791,13 @@ class Controller:
                     inc.responseToHospitalMinutes = None
             else:
                 inc.responseToHospitalMinutes = None
+            if reached_ts is not None and hosp_ts is not None:
+                try:
+                    inc.remainingWaitTime = max(0.0, (reached_ts - hosp_ts).total_seconds() / 60.0)
+                except Exception:
+                    inc.remainingWaitTime = None
+            else:
+                inc.remainingWaitTime = None
             try:
                 self._spawned_incidents[inc.id] = inc
                 #print("incident id",inc)
@@ -1524,4 +1531,5 @@ class Controller:
             
 
             
+
 
