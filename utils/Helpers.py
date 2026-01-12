@@ -113,11 +113,12 @@ def build_daily_incident_schedule(
     time_col: str = "Received DtTm",
     response_col: str | None = "Response DtTm",
     hospital_col: str | None = "Hospital DtTm",
+    reached_col : str | None = "Available DtTm",
     lat_col: str | None = "Latitude",
     lng_col: str | None = "Longitude",
     wkt_col: str | None = None,
     priority_col: str | None = "Final Priority",
-) -> Dict[int, List[Tuple[int,pd.Timestamp, float, float, int, pd.Timestamp | None, pd.Timestamp | None]]]:
+) -> Dict[int, List[Tuple[int,pd.Timestamp, float, float, int, pd.Timestamp | None, pd.Timestamp | None, pd.Timestamp | None]]]:
     """
     Returns {tick: [(ts, lat, lng, priority), ...], ...} for a single calendar day in df.
     If lat/lng not present, set wkt_col to parse 'POINT (lng lat)'.
@@ -141,12 +142,20 @@ def build_daily_incident_schedule(
             tmp[hospital_col] = pd.NaT
     else:
         tmp[hospital_col or "Hospital DtTm"] = pd.NaT
-
+        
+    if reached_col:
+        if reached_col in tmp.columns:
+            tmp[reached_col] = pd.to_datetime(tmp[reached_col], format="%Y %b %d %I:%M:%S %p", errors="coerce")
+        else:
+            tmp[reached_col] = pd.NaT
+    else:
+        tmp[reached_col or "Available DtTm"] = pd.NaT
+        
     day_start = pd.Timestamp(day.normalize())
     day_end = day_start + pd.Timedelta(days=1)
     tmp = tmp[(tmp[time_col] >= day_start) & (tmp[time_col] < day_end)]
 
-    coords: List[Tuple[int,pd.Timestamp, float, float, int, pd.Timestamp | None, pd.Timestamp | None]] = []
+    coords: List[Tuple[int,pd.Timestamp, float, float, int, pd.Timestamp | None, pd.Timestamp | None, pd.Timestamp | None]] = []
 
     if lat_col and lng_col and lat_col in tmp.columns and lng_col in tmp.columns:
         tmp = tmp.dropna(subset=[lat_col, lng_col])
@@ -161,13 +170,13 @@ def build_daily_incident_schedule(
         else:
             priorities = [1] * len(tmp)
         
-        for inc_id, ts, lat, lng, priority, rsp, hosp in zip(tmp[id_col], tmp[time_col], tmp[lat_col], tmp[lng_col], priorities, tmp[response_col], tmp[hospital_col]):
+        for inc_id, ts, lat, lng, priority, rsp, hosp, reached in zip(tmp[id_col], tmp[time_col], tmp[lat_col], tmp[lng_col], priorities, tmp[response_col], tmp[hospital_col, tmp[reached_col]]):
             if pd.notna(lat) and pd.notna(lng):
                 pri = int(priority) if pd.notna(priority) else 1
                 rsp_ts = rsp if pd.notna(rsp) else None
                 hosp_ts = hosp if pd.notna(hosp) else None
-
-                coords.append((int(inc_id), ts, float(lat), float(lng), pri, rsp_ts, hosp_ts))
+                reached_ts = reached if pd.notna(reached) else None
+                coords.append((int(inc_id), ts, float(lat), float(lng), pri, rsp_ts, hosp_ts, reached_ts))
 
     elif wkt_col and wkt_col in tmp.columns:
         # Get priority series or create default
@@ -176,22 +185,22 @@ def build_daily_incident_schedule(
         else:
             priorities = [1] * len(tmp)
         
-        for inc_id, ts, w, priority, rsp, hosp in zip(tmp[id_col], tmp[time_col], tmp[wkt_col], priorities, tmp[response_col], tmp[hospital_col]):
+        for inc_id, ts, w, priority, rsp, hosp, reached in zip(tmp[id_col], tmp[time_col], tmp[wkt_col], priorities, tmp[response_col], tmp[hospital_col], tmp[reached_col]):
             p = parse_wkt_row(w)
             if p:
                 lat, lng = p
                 pri = int(priority) if pd.notna(priority) else 1
                 rsp_ts = rsp if pd.notna(rsp) else None
                 hosp_ts = hosp if pd.notna(hosp) else None
-
-                coords.append((int(inc_id), ts, float(lat), float(lng), pri, rsp_ts, hosp_ts))
+                reached_ts = reached if pd.notna(reached) else None
+                coords.append((int(inc_id), ts, float(lat), float(lng), pri, rsp_ts, hosp_ts, reached_ts))
     else:
         return {}
 
-    schedule: Dict[int, List[Tuple[int, pd.Timestamp, float, float, int, pd.Timestamp | None, pd.Timestamp | None]]] = {i: [] for i in range(180)}
-    for inc_id,ts, lat, lng, pri,rsp_ts,hosp_ts in coords:
+    schedule: Dict[int, List[Tuple[int, pd.Timestamp, float, float, int, pd.Timestamp | None, pd.Timestamp | None, pd.Timestamp | None]]] = {i: [] for i in range(180)}
+    for inc_id,ts, lat, lng, pri,rsp_ts,hosp_ts, reached_ts in coords:
         t = to_tick_index(ts)
-        schedule[t].append((inc_id,ts, lat, lng, pri, rsp_ts, hosp_ts))
+        schedule[t].append((inc_id,ts, lat, lng, pri, rsp_ts, hosp_ts, reached_ts))
     return schedule
 
 # -----------------------------
