@@ -1041,7 +1041,7 @@ class Controller:
         #print("for ev number metric list ",emv2.id,"is",emv2.metric)
         #print("for ev nummber",emv.id,"idle time is",emv.aggIdleTime)  
         #print("for ev nummber",emv2.id,"idle time is",emv2.aggIdleTime)
-        #self._train_reposition(batch_size=64, gamma=0.99)
+        self._train_reposition(batch_size=64, gamma=0.99)
         Q_value_tick = self._train_navigation(batch_size=64, gamma=0.99)
         self.global_tick +=1
         '''print("EV state distribution:",
