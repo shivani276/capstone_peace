@@ -94,3 +94,4 @@ class DispatcherService:
                 print(f"[DISPATCH] EV {best_ev.id} → Incident {inc.id} " f"(Grid {g_idx}, wait={inc.get_wait_minutes():.2f} min)")
 
                 assignments.append((best_ev.id, inc.id))
+        return assignments
